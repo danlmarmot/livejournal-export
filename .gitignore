@@ -9,3 +9,6 @@ posts-json
 posts-markdown
 posts-html
 venv/
+ljconfig.py
+ljconfig-*.py
+

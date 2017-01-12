@@ -4,15 +4,15 @@ import os
 import json
 import requests
 import xml.etree.ElementTree as ET
-from auth import cookies, headers
+import auth
 
 
 def fetch_xml(params):
     response = requests.get(
         'http://www.livejournal.com/export_comments.bml',
         params=params,
-        headers=headers,
-        cookies=cookies
+        headers=auth.get_headers(),
+        cookies=auth.get_cookies()
     )
 
     return response.text
@@ -99,4 +99,3 @@ def download_comments():
 
 if __name__ == '__main__':
     download_comments()
-    

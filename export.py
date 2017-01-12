@@ -11,27 +11,23 @@ from operator import itemgetter
 from download_posts import download_posts
 from download_comments import download_comments
 
-
 TAG = re.compile(r'\[!\[(.*?)\]\(http:\/\/utx.ambience.ru\/img\/.*?\)\]\(.*?\)')
 USER = re.compile(r'<lj user="?(.*?)"?>')
 TAGLESS_NEWLINES = re.compile('(?<!>)\n')
 NEWLINES = re.compile('(\s*\n){3,}')
-
 SLUGS = {}
 
-# TODO: lj-cut
 
-
-def fix_user_links(json):
+def fix_user_links(json_dict):
     """ replace user links with usernames """
-    if 'subject' in json:
-        json['subject'] = USER.sub(r'\1', json['subject'])
+    if 'subject' in json_dict:
+        json_dict['subject'] = USER.sub(r'\1', json_dict['subject'])
 
-    if 'body' in json:
-        json['body'] = USER.sub(r'\1', json['body'])
+    if 'body' in json_dict:
+        json_dict['body'] = USER.sub(r'\1', json_dict['body'])
 
 
-def json_to_html(json):
+def json_to_html(json_dict):
     return """<!doctype html>
 <meta charset="utf-8">
 <title>{subject}</title>
@@ -40,15 +36,15 @@ def json_to_html(json):
 {body}
 </article>
 """.format(
-        subject=json['subject'] or json['date'],
-        body=TAGLESS_NEWLINES.sub('<br>\n', json['body'])
+        subject=json_dict['subject'] or json_dict['date'],
+        body=TAGLESS_NEWLINES.sub('<br>\n', json_dict['body'])
     )
 
 
-def get_slug(json):
-    slug = json['subject']
+def get_slug(json_dict):
+    slug = json_dict['subject']
     if not len(slug):
-        slug = json['id']
+        slug = json_dict['id']
 
     if '<' in slug or '&' in slug:
         slug = BeautifulSoup('<p>{0}</p>'.format(slug)).text
@@ -57,15 +53,15 @@ def get_slug(json):
     slug = re.compile(r'^-|-$').sub('', slug)
 
     if slug in SLUGS:
-        slug += (len(slug) and '-' or '') + json['id']
+        slug += (len(slug) and '-' or '') + json_dict['id']
 
     SLUGS[slug] = True
 
     return slug
 
 
-def json_to_markdown(json):
-    body = TAGLESS_NEWLINES.sub('<br>', json['body'])
+def json_to_markdown(json_dict):
+    body = TAGLESS_NEWLINES.sub('<br>', json_dict['body'])
 
     h = html2text.HTML2Text()
     h.body_width = 0
@@ -75,13 +71,13 @@ def json_to_markdown(json):
 
     # read UTX tags
     tags = TAG.findall(body)
-    json['tags'] = len(tags) and '\ntags: {0}'.format(', '.join(tags)) or ''
+    json_dict['tags'] = len(tags) and '\ntags: {0}'.format(', '.join(tags)) or ''
 
     # remove UTX tags from text
-    json['body'] = TAG.sub('', body).strip()
+    json_dict['body'] = TAG.sub('', body).strip()
 
-    json['slug'] = get_slug(json)
-    json['subject'] = json['subject'] or json['date']
+    json_dict['slug'] = get_slug(json_dict)
+    json_dict['subject'] = json_dict['subject'] or json_dict['date']
 
     return """id: {id}
 title: {subject}
@@ -89,7 +85,7 @@ slug: {slug}
 date: {date}{tags}
 
 {body}
-""".format(**json)
+""".format(**json_dict)
 
 
 def group_comments_by_post(comments):
@@ -142,39 +138,39 @@ def comments_to_html(comments):
     return '<ul>\n{0}\n</ul>'.format('\n'.join(map(comment_to_li, sorted(comments, key=itemgetter('id')))))
 
 
-def save_as_json(id, json_post, post_comments):
-    json_data = {'id': id, 'post': json_post, 'comments': post_comments}
-    with open('posts-json/{0}.json'.format(id), 'w') as f:
-        f.write(json.dumps(json_data, ensure_ascii=False, indent=2))
+def save_as_json(json_id, json_post, post_comments):
+    json_data = {'id': json_id, 'post': json_post, 'comments': post_comments}
+    with open('posts-json/{0}.json'.format(json_id), 'w') as json_file:
+        json_file.write(json.dumps(json_data, ensure_ascii=False, indent=2))
 
 
-def save_as_markdown(id, subfolder, json_post, post_comments_html):
+def save_as_markdown(markdown_id, subfolder, json_post, post_comments_html):
     os.makedirs('posts-markdown/{0}'.format(subfolder), exist_ok=True)
-    with open('posts-markdown/{0}/{1}.md'.format(subfolder, id), 'w') as f:
-        f.write(json_to_markdown(json_post))
+    with open('posts-markdown/{0}/{1}.md'.format(subfolder, markdown_id), 'w') as md_file:
+        md_file.write(json_to_markdown(json_post))
     if post_comments_html:
-        with open('comments-markdown/{0}.md'.format(json_post['slug']), 'w') as f:
-            f.write(post_comments_html)
+        with open('comments-markdown/{0}.md'.format(json_post['slug']), 'w') as md_file:
+            md_file.write(post_comments_html)
 
 
-def save_as_html(id, subfolder, json_post, post_comments_html):
+def save_as_html(html_id, subfolder, json_post, post_comments_html):
     os.makedirs('posts-html/{0}'.format(subfolder), exist_ok=True)
-    with open('posts-html/{0}/{1}.html'.format(subfolder, id), 'w') as f:
-        f.writelines(json_to_html(json_post))
+    with open('posts-html/{0}/{1}.html'.format(subfolder, html_id), 'w') as html_file:
+        html_file.writelines(json_to_html(json_post))
         if post_comments_html:
-            f.write('\n<h2>Комментарии</h2>\n' + post_comments_html)
+            html_file.write('\n<h2>Комментарии</h2>\n' + post_comments_html)
 
 
-def combine(all_posts, all_comments):
+def combine(posts, comments):
     os.makedirs('posts-html', exist_ok=True)
     os.makedirs('posts-markdown', exist_ok=True)
     os.makedirs('comments-markdown', exist_ok=True)
 
-    posts_comments = group_comments_by_post(all_comments)
+    posts_comments = group_comments_by_post(comments)
 
-    for json_post in all_posts:
-        id = json_post['id']
-        jitemid = int(id) >> 8
+    for json_post in posts:
+        post_id = json_post['id']
+        jitemid = int(post_id) >> 8
 
         date = datetime.strptime(json_post['date'], '%Y-%m-%d %H:%M:%S')
         subfolder = '{0.year}-{0.month:02d}'.format(date)
@@ -184,9 +180,9 @@ def combine(all_posts, all_comments):
 
         fix_user_links(json_post)
 
-        save_as_json(id, json_post, post_comments)
-        save_as_html(id, subfolder, json_post, post_comments_html)
-        save_as_markdown(id, subfolder, json_post, post_comments_html)
+        save_as_json(post_id, json_post, post_comments)
+        save_as_html(post_id, subfolder, json_post, post_comments_html)
+        save_as_markdown(post_id, subfolder, json_post, post_comments_html)
 
 
 if __name__ == '__main__':

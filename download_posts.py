@@ -4,17 +4,17 @@ import json
 import os
 import requests
 import xml.etree.ElementTree as ET
-from auth import cookies, headers
+import auth
 
 
-YEARS = range(2003, 2015)  # first to (last + 1)
+YEARS = range(1989, 2018)  # first to (last + 1)
 
 
 def fetch_month_posts(year, month):
     response = requests.post(
         'http://www.livejournal.com/export_do.bml',
-        headers=headers,
-        cookies=cookies,
+        headers=auth.get_headers(),
+        cookies=auth.get_cookies(),
         data={
             'what': 'journal',
             'year': year,
@@ -60,6 +60,7 @@ def download_posts():
     xml_posts = []
     for year in YEARS:
         for month in range(1, 13):
+            print("Fetching for " + str(month) + ", " + str(year))
             xml = fetch_month_posts(year, month)
             xml_posts.extend(list(ET.fromstring(xml).iter('entry')))
 
