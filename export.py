@@ -6,6 +6,7 @@ import os
 import re
 import html2text
 import markdown
+import fnmatch
 from bs4 import BeautifulSoup
 from datetime import datetime
 from operator import itemgetter
@@ -18,12 +19,14 @@ import requests
 LJ_SERVER = ""
 USERNAME = ""
 PASSWORD = ""
-YEARS = range(1989, 1989)  # first to (last + 1)
+YEARS = range(1989, 2020)  # first to (last + 1)
 
 # Other constants
 HEADERS = {
     'User-Agent': 'Mozilla/5.0 (Windows NT 8.1; rv:10.0) Gecko/20100101 Firefox/10.0'
 }
+
+DOWNLOADED_JOURNALS_DIR = "exported_journals"
 
 TAG = re.compile(r'\[!\[(.*?)\]\(http:\/\/utx.ambience.ru\/img\/.*?\)\]\(.*?\)')
 USER = re.compile(r'<lj user="?(.*?)"?>')
@@ -33,21 +36,58 @@ SLUGS = {}
 
 
 def main():
+    # Setup export directories for this user
+    export_dirs = ensure_export_dirs(DOWNLOADED_JOURNALS_DIR, USERNAME)
+
     if False:
         download_posts()
         download_comments()
 
     # Generate the all.json files from downloaded posts and comments
     if True:
+        create_posts_json_all_file(export_dirs)
         pass
 
     if False:
-        with open('posts-json/all.json', 'r') as f:
+        with open(os.path.join(export_dirs['posts-json'], 'all.json'), 'r') as f:
             all_posts = json.load(f)
         with open('comments-json/all.json', 'r') as f:
             all_comments = json.load(f)
 
         combine(all_posts, all_comments)
+
+
+def ensure_export_dirs(top_dir, lj_user):
+    export_dirs = {
+        "posts-html": os.path.join(top_dir, lj_user, 'posts-html'),
+        "posts-json": os.path.join(top_dir, lj_user, 'posts-json'),
+        "posts-xml": os.path.join(top_dir, lj_user, 'posts-xml'),
+    }
+
+    for k, v in export_dirs.items():
+        os.makedirs(v, exist_ok=True)
+
+    return export_dirs
+
+
+def find_files_by_pattern(filepat, top_dir):
+    for path, dirlist, filelist in os.walk(top_dir):
+        for name in fnmatch.filter(filelist, filepat):
+            yield os.path.join(path, name)
+
+
+def create_posts_json_all_file(export_dirs):
+    xml_posts = []
+
+    xml_files = find_files_by_pattern('*.xml', export_dirs['posts-xml'])
+    for xml_file in xml_files:
+        with open(xml_file, 'rt') as f:
+            xml_posts.extend(list(ET.fromstring(f.read()).iter('entry')))
+
+    json_posts = list(map(xml_to_json, xml_posts))
+    posts_json_all_filename = os.path.join(export_dirs['posts-json'], 'all.json')
+    with open(posts_json_all_filename, 'w') as f:
+        f.write(json.dumps(json_posts, ensure_ascii=False, indent=2))
 
 
 def fix_user_links(json_dict):
@@ -377,7 +417,7 @@ def download_comments():
 # Authentication
 def get_cookies():
     r1 = requests.post(LJ_SERVER + "/interface/flat", data={'mode': 'getchallenge'})
-    r1_flat = flatresponse(r1.text)
+    r1_flat = flatten_string_pairs_to_dict(r1.text)
     challenge = r1_flat['challenge']
 
     r2 = requests.post(LJ_SERVER + "/interface/flat",
@@ -389,7 +429,7 @@ def get_cookies():
                              }
                        )
 
-    r2_flat = flatresponse(r2.text)
+    r2_flat = flatten_string_pairs_to_dict(r2.text)
 
     if r2_flat.get('ljsession', False):
         return {'ljsession': r2_flat['ljsession']}
@@ -402,8 +442,8 @@ def get_headers():
     return HEADERS
 
 
-def flatresponse(response):
-    items = response.strip('\n').split('\n')
+def flatten_string_pairs_to_dict(response, delimiter='\n'):
+    items = response.strip(delimiter).split(delimiter)
     flat_response = {items[i]: items[i + 1] for i in range(0, len(items), 2)}
     return flat_response
 
