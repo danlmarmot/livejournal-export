@@ -258,7 +258,7 @@ def combine(posts, comments):
 def fetch_month_posts(year, month):
     response = requests.post(
         'http://www.livejournal.com/export_do.bml',
-        headers=get_headers(),
+        headers=config.header,
         cookies=get_cookies(),
         data={
             'what': 'journal',
@@ -324,7 +324,7 @@ def fetch_xml(params):
     response = requests.get(
         'http://www.livejournal.com/export_comments.bml',
         params=params,
-        headers=get_headers(),
+        headers=config.header,
         cookies=get_cookies()
     )
 
@@ -432,10 +432,6 @@ def get_cookies():
     else:
         print("Did not get ljsession cookie.  Exiting")
         sys.exit(1)
-
-
-def get_headers():
-    return HEADERS
 
 
 def flatten_string_pairs_to_dict(response, delimiter='\n'):
