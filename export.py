@@ -14,12 +14,8 @@ import xml.etree.ElementTree as ET
 from hashlib import md5
 import requests
 
-
-# User settings
-LJ_SERVER = ""
-USERNAME = ""
-PASSWORD = ""
-YEARS = range(1989, 2020)  # first to (last + 1)
+# User settings are found in ljconfig.py
+import ljconfig as config
 
 # Other constants
 HEADERS = {
@@ -37,7 +33,7 @@ SLUGS = {}
 
 def main():
     # Setup export directories for this user
-    export_dirs = ensure_export_dirs(DOWNLOADED_JOURNALS_DIR, USERNAME)
+    export_dirs = ensure_export_dirs(DOWNLOADED_JOURNALS_DIR, config.username)
 
     if False:
         download_posts()
@@ -307,7 +303,7 @@ def download_posts():
     os.makedirs('posts-json', exist_ok=True)
 
     xml_posts = []
-    for year in YEARS:
+    for year in config.years_to_download:
         for month in range(1, 13):
             print("Fetching for " + str(month) + ", " + str(year))
             xml = fetch_month_posts(year, month)
@@ -416,13 +412,13 @@ def download_comments():
 
 # Authentication
 def get_cookies():
-    r1 = requests.post(LJ_SERVER + "/interface/flat", data={'mode': 'getchallenge'})
+    r1 = requests.post(config.lj_server + "/interface/flat", data={'mode': 'getchallenge'})
     r1_flat = flatten_string_pairs_to_dict(r1.text)
     challenge = r1_flat['challenge']
 
-    r2 = requests.post(LJ_SERVER + "/interface/flat",
+    r2 = requests.post(config.lj_server + "/interface/flat",
                        data={'mode': 'sessiongenerate',
-                             'user': USERNAME,
+                             'user': config.username,
                              'auth_method': 'challenge',
                              'auth_challenge': challenge,
                              'auth_response': make_md5_from_challenge(challenge)
@@ -449,7 +445,7 @@ def flatten_string_pairs_to_dict(response, delimiter='\n'):
 
 
 def make_md5_from_challenge(challenge):
-    first_encoded = challenge + md5(PASSWORD.encode('utf-8')).hexdigest()
+    first_encoded = challenge + md5(config.password.encode('utf-8')).hexdigest()
     full_encoded = md5(first_encoded.encode('utf-8')).hexdigest()
     return full_encoded
 
