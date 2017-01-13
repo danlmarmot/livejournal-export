@@ -32,20 +32,19 @@ SLUGS = {}
 
 
 def main():
-    # Setup export directories for this user
+    # Setup export directories for this LJ user
     export_dirs = ensure_export_dirs(DOWNLOADED_JOURNALS_DIR, config.username)
 
     if False:
-        download_posts(export_dirs['post-xml'])
+        download_posts(export_dirs['posts-xml'])
         download_comments(export_dirs['comments-xml'], export_dirs['comments-json'])
 
     # Generate the all.json files from downloaded posts and comments
-    if True:
-        # create_posts_json_all_file(export_dirs)
-        create_comments_json_all_file(export_dirs['comments-xml'], export_dirs['comments-json'])
-        pass
-
     if False:
+        create_posts_json_all_file(export_dirs['posts-xml'], export_dirs['posts-json'])
+        create_comments_json_all_file(export_dirs['comments-xml'], export_dirs['comments-json'])
+
+    if True:
         with open(os.path.join(export_dirs['posts-json'], 'all.json'), 'r') as f:
             all_posts = json.load(f)
         with open(os.path.join(export_dirs['comments-json'], 'all.json'), 'r') as f:
@@ -78,16 +77,16 @@ def find_files_by_pattern(filepat, top_dir):
             yield os.path.join(path, name)
 
 
-def create_posts_json_all_file(export_dirs):
+def create_posts_json_all_file(posts_xml_dir, posts_json_dir):
     xml_posts = []
 
-    xml_files = find_files_by_pattern('*.xml', export_dirs['posts-xml'])
+    xml_files = find_files_by_pattern('*.xml', posts_xml_dir)
     for xml_file in xml_files:
         with open(xml_file, 'rt') as f:
             xml_posts.extend(list(ET.fromstring(f.read()).iter('entry')))
 
     json_posts = list(map(xml_to_json, xml_posts))
-    posts_json_all_filename = os.path.join(export_dirs['posts-json'], 'all.json')
+    posts_json_all_filename = os.path.join(posts_json_dir, 'all.json')
     with open(posts_json_all_filename, 'w') as f:
         f.write(json.dumps(json_posts, ensure_ascii=False, indent=2))
 
@@ -284,17 +283,20 @@ def save_as_json(json_id, json_post, post_comments, posts_json_dir):
 
 
 def save_as_markdown(markdown_id, subfolder, json_post, post_comments_html, posts_markdown_dir, comments_markdown_dir):
+    os.makedirs(os.path.join(posts_markdown_dir, subfolder), exist_ok=True)
     md_filename = os.path.join(posts_markdown_dir, subfolder, markdown_id + ".md")
     with open(md_filename, 'w') as md_file:
         md_file.write(json_to_markdown(json_post))
 
     if post_comments_html:
+        os.makedirs(os.path.join(comments_markdown_dir, subfolder), exist_ok=True)
         md_comments_filename = os.path.join(comments_markdown_dir, json_post['slug'], ".md")
         with open(md_comments_filename, 'w') as md_file:
             md_file.write(post_comments_html)
 
 
 def save_as_html(html_id, subfolder, json_post, post_comments_html, posts_html_dir):
+    os.makedirs(os.path.join(posts_html_dir, subfolder), exist_ok=True)
     html_filename = os.path.join(posts_html_dir, subfolder, html_id + ".html")
     with open(html_filename, 'w') as html_file:
         html_file.writelines(json_to_html(json_post))
@@ -317,9 +319,9 @@ def combine(posts, comments, export_dirs):
 
         fix_user_links(json_post)
 
-        save_as_json(post_id, json_post, post_comments, export_dirs['post-json'])
-        save_as_html(post_id, subfolder, json_post, post_comments_html, export_dirs['post-html'])
-        save_as_markdown(post_id, subfolder, json_post, post_comments_html, export_dirs['post-markdown'],
+        save_as_json(post_id, json_post, post_comments, export_dirs['posts-json'])
+        save_as_html(post_id, subfolder, json_post, post_comments_html, export_dirs['posts-html'])
+        save_as_markdown(post_id, subfolder, json_post, post_comments_html, export_dirs['posts-markdown'],
                          export_dirs['comments-markdown'])
 
 
