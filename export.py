@@ -36,28 +36,34 @@ def main():
     export_dirs = ensure_export_dirs(DOWNLOADED_JOURNALS_DIR, config.username)
 
     if False:
-        download_posts()
-        download_comments()
+        download_posts(export_dirs['post-xml'])
+        download_comments(export_dirs['comments-xml'], export_dirs['comments-json'])
 
     # Generate the all.json files from downloaded posts and comments
     if True:
-        create_posts_json_all_file(export_dirs)
+        # create_posts_json_all_file(export_dirs)
+        create_comments_json_all_file(export_dirs['comments-xml'], export_dirs['comments-json'])
         pass
 
     if False:
         with open(os.path.join(export_dirs['posts-json'], 'all.json'), 'r') as f:
             all_posts = json.load(f)
-        with open('comments-json/all.json', 'r') as f:
+        with open(os.path.join(export_dirs['comments-json'], 'all.json'), 'r') as f:
             all_comments = json.load(f)
 
-        combine(all_posts, all_comments)
+        combine(all_posts, all_comments, export_dirs)
 
 
 def ensure_export_dirs(top_dir, lj_user):
     export_dirs = {
-        "posts-html": os.path.join(top_dir, lj_user, 'posts-html'),
-        "posts-json": os.path.join(top_dir, lj_user, 'posts-json'),
         "posts-xml": os.path.join(top_dir, lj_user, 'posts-xml'),
+        "posts-json": os.path.join(top_dir, lj_user, 'posts-json'),
+        "posts-html": os.path.join(top_dir, lj_user, 'posts-html'),
+        "posts-markdown": os.path.join(top_dir, lj_user, 'posts-markdown'),
+        "comments-xml": os.path.join(top_dir, lj_user, 'comments-xml'),
+        "comments-json": os.path.join(top_dir, lj_user, 'comments-json'),
+        "comments-html": os.path.join(top_dir, lj_user, 'comments-html'),
+        "comments-markdown": os.path.join(top_dir, lj_user, 'comments-markdown'),
     }
 
     for k, v in export_dirs.items():
@@ -84,6 +90,70 @@ def create_posts_json_all_file(export_dirs):
     posts_json_all_filename = os.path.join(export_dirs['posts-json'], 'all.json')
     with open(posts_json_all_filename, 'w') as f:
         f.write(json.dumps(json_posts, ensure_ascii=False, indent=2))
+
+
+def create_comments_json_all_file(comments_xml_dir, comments_json_dir):
+    all_comments = []
+
+    # Get usermap, mapping integer id to username of commentor
+    usermap_json_filename = os.path.join(comments_json_dir, "usermap.json")
+    with open(usermap_json_filename) as f:
+        users = json.load(f)
+
+    xml_files = find_files_by_pattern('comment_body*.xml', comments_xml_dir)
+    for xml_file in xml_files:
+        with open(xml_file, 'rt') as f:
+            new_comments = extract_comments_from_xml(f.read(), users)
+            all_comments.extend(new_comments)
+
+    comments_json_all_filename = os.path.join(comments_json_dir, "all.json")
+    with open(comments_json_all_filename, 'w') as f:
+        f.write(json.dumps(all_comments, ensure_ascii=False, indent=2))
+
+    return
+
+
+def extract_comments_from_xml(xml, user_map):
+    comments = []
+
+    for comment_xml in ET.fromstring(xml).iter('comment'):
+        comment = {
+            'jitemid': int(comment_xml.attrib['jitemid']),
+            'id': int(comment_xml.attrib['id']),
+            'children': []
+        }
+        get_comment_property('parentid', comment_xml, comment)
+        get_comment_property('posterid', comment_xml, comment)
+        get_comment_element('date', comment_xml, comment)
+        get_comment_element('subject', comment_xml, comment)
+        get_comment_element('body', comment_xml, comment)
+
+        if 'state' in comment_xml.attrib:
+            comment['state'] = comment_xml.attrib['state']
+
+        if 'posterid' in comment:
+            comment['author'] = user_map.get(str(comment['posterid']), "deleted-user")
+
+        comments.append(comment)
+
+    return comments
+
+
+def download_comments(comments_xml_dir, comments_json_dir):
+    comments_metadata_filename = os.path.join(comments_xml_dir, "comment_meta.xml")
+    metadata_xml = fetch_xml({'get': 'comment_meta', 'startid': 0})
+    with open(comments_metadata_filename, 'w') as f:
+        f.write(metadata_xml)
+
+    metadata = ET.fromstring(metadata_xml)
+    users = get_users_map(metadata, comments_json_dir)
+
+    start_id = -1
+    max_id = int(metadata.find('maxid').text)
+    while start_id < max_id:
+        start_id, comments = get_more_comments(start_id + 1, users, comments_xml_dir)
+
+    return
 
 
 def fix_user_links(json_dict):
@@ -206,34 +276,33 @@ def comments_to_html(comments):
     return '<ul>\n{0}\n</ul>'.format('\n'.join(map(comment_to_li, sorted(comments, key=itemgetter('id')))))
 
 
-def save_as_json(json_id, json_post, post_comments):
+def save_as_json(json_id, json_post, post_comments, posts_json_dir):
     json_data = {'id': json_id, 'post': json_post, 'comments': post_comments}
-    with open('posts-json/{0}.json'.format(json_id), 'w') as json_file:
+    json_filename = os.path.join(posts_json_dir, '{0}.json'.format(json_id))
+    with open(json_filename, 'w') as json_file:
         json_file.write(json.dumps(json_data, ensure_ascii=False, indent=2))
 
 
-def save_as_markdown(markdown_id, subfolder, json_post, post_comments_html):
-    os.makedirs('posts-markdown/{0}'.format(subfolder), exist_ok=True)
-    with open('posts-markdown/{0}/{1}.md'.format(subfolder, markdown_id), 'w') as md_file:
+def save_as_markdown(markdown_id, subfolder, json_post, post_comments_html, posts_markdown_dir, comments_markdown_dir):
+    md_filename = os.path.join(posts_markdown_dir, subfolder, markdown_id + ".md")
+    with open(md_filename, 'w') as md_file:
         md_file.write(json_to_markdown(json_post))
+
     if post_comments_html:
-        with open('comments-markdown/{0}.md'.format(json_post['slug']), 'w') as md_file:
+        md_comments_filename = os.path.join(comments_markdown_dir, json_post['slug'], ".md")
+        with open(md_comments_filename, 'w') as md_file:
             md_file.write(post_comments_html)
 
 
-def save_as_html(html_id, subfolder, json_post, post_comments_html):
-    os.makedirs('posts-html/{0}'.format(subfolder), exist_ok=True)
-    with open('posts-html/{0}/{1}.html'.format(subfolder, html_id), 'w') as html_file:
+def save_as_html(html_id, subfolder, json_post, post_comments_html, posts_html_dir):
+    html_filename = os.path.join(posts_html_dir, subfolder, html_id + ".html")
+    with open(html_filename, 'w') as html_file:
         html_file.writelines(json_to_html(json_post))
         if post_comments_html:
-            html_file.write('\n<h2>Комментарии</h2>\n' + post_comments_html)
+            html_file.write('\n<h2>Comments</h2>\n' + post_comments_html)
 
 
-def combine(posts, comments):
-    os.makedirs('posts-html', exist_ok=True)
-    os.makedirs('posts-markdown', exist_ok=True)
-    os.makedirs('comments-markdown', exist_ok=True)
-
+def combine(posts, comments, export_dirs):
     posts_comments = group_comments_by_post(comments)
 
     for json_post in posts:
@@ -248,9 +317,10 @@ def combine(posts, comments):
 
         fix_user_links(json_post)
 
-        save_as_json(post_id, json_post, post_comments)
-        save_as_html(post_id, subfolder, json_post, post_comments_html)
-        save_as_markdown(post_id, subfolder, json_post, post_comments_html)
+        save_as_json(post_id, json_post, post_comments, export_dirs['post-json'])
+        save_as_html(post_id, subfolder, json_post, post_comments_html, export_dirs['post-html'])
+        save_as_markdown(post_id, subfolder, json_post, post_comments_html, export_dirs['post-markdown'],
+                         export_dirs['comments-markdown'])
 
 
 # Downloads for posts
@@ -298,25 +368,15 @@ def xml_to_json(xml):
     }
 
 
-def download_posts():
-    os.makedirs('posts-xml', exist_ok=True)
-    os.makedirs('posts-json', exist_ok=True)
-
-    xml_posts = []
+def download_posts(posts_xml_dir):
     for year in config.years_to_download:
         for month in range(1, 13):
             print("Fetching for " + str(month) + ", " + str(year))
             xml = fetch_month_posts(year, month)
-            xml_posts.extend(list(ET.fromstring(xml).iter('entry')))
-
-            with open('posts-xml/{0}-{1:02d}.xml'.format(year, month), 'w+') as file:
+            posts_xml_filename = os.path.join(posts_xml_dir, '{0}-{1:02d}.xml'.format(year, month))
+            with open(posts_xml_filename, 'w+') as file:
                 file.write(xml)
-
-    json_posts = list(map(xml_to_json, xml_posts))
-    with open('posts-json/all.json', 'w') as f:
-        f.write(json.dumps(json_posts, ensure_ascii=False, indent=2))
-
-    return json_posts
+    return
 
 
 # Comments
@@ -331,13 +391,13 @@ def fetch_xml(params):
     return response.text
 
 
-def get_users_map(xml):
+def get_users_map(xml, comments_json_dir):
     users = {}
 
     for user in xml.iter('usermap'):
         users[user.attrib['id']] = user.attrib['user']
 
-    with open('comments-json/usermap.json', 'w') as f:
+    with open(os.path.join(comments_json_dir, 'usermap.json'), 'w') as f:
         f.write(json.dumps(users, ensure_ascii=False, indent=2))
 
     return users
@@ -354,12 +414,13 @@ def get_comment_element(name, comment_xml, comment):
         comment[name] = elements[0].text
 
 
-def get_more_comments(start_id, users):
+def get_more_comments(start_id, users, comments_xml_dir):
     comments = []
     local_max_id = -1
 
     xml = fetch_xml({'get': 'comment_body', 'startid': start_id})
-    with open('comments-xml/comment_body-{0}.xml'.format(start_id), 'w') as f:
+    comments_xml_filename = os.path.join(comments_xml_dir, 'comment_body-{0}.xml'.format(start_id))
+    with open(comments_xml_filename, 'w') as f:
         f.write(xml)
 
     for comment_xml in ET.fromstring(xml).iter('comment'):
@@ -384,30 +445,6 @@ def get_more_comments(start_id, users):
         comments.append(comment)
 
     return local_max_id, comments
-
-
-def download_comments():
-    os.makedirs('comments-xml', exist_ok=True)
-    os.makedirs('comments-json', exist_ok=True)
-
-    metadata_xml = fetch_xml({'get': 'comment_meta', 'startid': 0})
-    with open('comments-xml/comment_meta.xml', 'w') as f:
-        f.write(metadata_xml)
-
-    metadata = ET.fromstring(metadata_xml)
-    users = get_users_map(metadata)
-
-    all_comments = []
-    start_id = -1
-    max_id = int(metadata.find('maxid').text)
-    while start_id < max_id:
-        start_id, comments = get_more_comments(start_id + 1, users)
-        all_comments.extend(comments)
-
-    with open('comments-json/all.json', 'w') as f:
-        f.write(json.dumps(all_comments, ensure_ascii=False, indent=2))
-
-    return all_comments
 
 
 # Authentication
