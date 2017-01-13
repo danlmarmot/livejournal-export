@@ -85,7 +85,7 @@ def create_posts_json_all_file(posts_xml_dir, posts_json_dir):
         with open(xml_file, 'rt') as f:
             xml_posts.extend(list(ET.fromstring(f.read()).iter('entry')))
 
-    json_posts = list(map(xml_to_json, xml_posts))
+    json_posts = list(map(post_xml_to_json, xml_posts))
     posts_json_all_filename = os.path.join(posts_json_dir, 'all.json')
     with open(posts_json_all_filename, 'w') as f:
         f.write(json.dumps(json_posts, ensure_ascii=False, indent=2))
@@ -353,16 +353,16 @@ def fetch_month_posts(year, month):
     return response.text
 
 
-def xml_to_json(xml):
+def post_xml_to_json(xml):
     def f(field):
         return xml.find(field).text
 
     return {
         'id': f('itemid'),
-        'date': f('logtime'),
+        'logtime': f('logtime'),
         'subject': f('subject') or '',
         'body': f('event'),
-        'eventtime': f('eventtime'),
+        'date': f('eventtime'),
         'security': f('security'),
         'allowmask': f('allowmask'),
         'current_music': f('current_music'),
