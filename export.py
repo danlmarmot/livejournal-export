@@ -8,6 +8,7 @@ import html2text
 import markdown
 import fnmatch
 from datetime import datetime
+import arrow
 from operator import itemgetter
 import xml.etree.ElementTree as ET
 from hashlib import md5
@@ -34,7 +35,7 @@ def main():
     # Setup export directories for this LJ user
     export_dirs = ensure_export_dirs(DOWNLOADED_JOURNALS_DIR, config.username)
 
-    if True:
+    if False:
         download_posts(export_dirs['posts-xml'])
         download_comments(export_dirs['comments-xml'], export_dirs['comments-json'], export_dirs['lj_user'])
 
@@ -43,7 +44,7 @@ def main():
         create_posts_json_all_file(export_dirs['posts-xml'], export_dirs['posts-json'])
         create_comments_json_all_file(export_dirs['comments-xml'], export_dirs['comments-json'])
 
-    if False:
+    if True:
         with open(os.path.join(export_dirs['lj_user'], 'all_posts.json'), 'r') as f:
             all_posts = json.load(f)
         with open(os.path.join(export_dirs['lj_user'], 'all_comments.json'), 'r') as f:
@@ -286,22 +287,51 @@ def comment_to_li(comment):
     return '<li{0}>{1}\n</li>'.format(subject_class, html)
 
 
-def make_md_comment(comment):
-    md = ''
+def make_md_comment(comment, level=1):
 
+    def indent(text):
+        return "    " * level + text
+
+    md = ''
     if 'state' in comment and comment['state'] == 'D':
         return ''
 
-    md += "### Comments \n"
-    md += "#### " + comment.get('author', 'Anonymous') + '\n'
-    if comment.get('subject'):
-        md += "#####" + comment.get('subject', '') + '\n'
+    comment_date_str = arrow.get(comment['date']).format('MMMM D YYYY, HH:mm:ss')
+
+    # Full container for comment
+    md += indent("<div class=b-tree-twig-" + str(level) + ">\n")
+
+    # Top of comment bar: userpic, username, posting time
+    md += indent("  <div class=comment-div>\n")
+
+    # Userpic.  todo: add userpic
+    md += indent("    <div class=b-leaf-userpic>")
+    # md+= shove userpic in here
+    md += indent("    </div>\n")
+
+    # Comment ljusername and datetime
+    md += indent("    <div class=b-leaf-details>\n")
+    md += indent("      <div class=ljuser>" + comment.get('author', 'anonymous') + "</div>\n")
+
+    md += indent("      <div class=b-leaf-createdtime>" + comment_date_str + "</div>\n")
+    md += indent("    </div>\n")
+    # Bottom of comment bar
+    md += indent("  </div>\n")
+    md += indent("  ::after\n\n")
 
     if 'body' in comment:
-        md += '\n' + markdown.markdown(TAGLESS_NEWLINES.sub('<br>\n', comment['body']))
+        md += indent("  <div class=b-leaf-article>\n")
+        md += indent("  ") + markdown.markdown(TAGLESS_NEWLINES.sub('<br>\n', comment['body'])) +"\n"
+        md += indent("  </div>\n")
 
+    # Close comment container
+    md += indent("</div>\n\n\n")
+
+    # Children aren't nested, but are rather indented via their class attributes.  todo: add styles for indent levels
     if len(comment['children']) > 0:
-        md += '\n' + comments_to_md(comment['children'])
+        sorted_children = sorted(comment['children'], key=itemgetter('id'))
+        child_comments = [make_md_comment(c, level+1) for c in sorted_children]
+        md += '\n'.join(child_comments)
 
     return md
 
@@ -311,9 +341,12 @@ def comments_to_html(comments):
 
 
 def comments_to_md(comments):
+    rv = "<hr>\n"
+    rv += "###Comments\n\n"
     sorted_comments = sorted(comments, key=itemgetter('id'))
     md_comments = [make_md_comment(c) for c in sorted_comments]
-    return '\n'.join(md_comments)
+    rv += '\n'.join(md_comments)
+    return rv
 
 
 def save_as_json(json_post, post_comments, posts_json_dir):
