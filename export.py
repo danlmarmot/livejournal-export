@@ -35,8 +35,8 @@ def main():
     # Setup export directories for this LJ user
     export_dirs = ensure_export_dirs(DOWNLOADED_JOURNALS_DIR, config.username)
 
-    if False:
-        download_posts(export_dirs['posts-xml'])
+    if True:
+        #download_posts(export_dirs['posts-xml'])
         download_comments(export_dirs['comments-xml'], export_dirs['comments-json'], export_dirs['lj_user'])
 
     # Generate the all.json files from downloaded posts and comments
@@ -44,7 +44,7 @@ def main():
         create_posts_json_all_file(export_dirs['posts-xml'], export_dirs['posts-json'])
         create_comments_json_all_file(export_dirs['comments-xml'], export_dirs['comments-json'])
 
-    if True:
+    if False:
         with open(os.path.join(export_dirs['lj_user'], 'all_posts.json'), 'r') as f:
             all_posts = json.load(f)
         with open(os.path.join(export_dirs['lj_user'], 'all_comments.json'), 'r') as f:
@@ -165,7 +165,9 @@ def fix_user_links(json_dict):
         json_dict['body'] = USER.sub(r'\1', json_dict['body'])
 
 
-def json_to_html(json_dict):
+def post_json_to_html(json_dict):
+    html = ''
+
     return """<!doctype html>
 <meta charset="utf-8">
 <title>{subject}</title>
@@ -230,7 +232,7 @@ def json_to_markdown(json_dict):
 Title: {subject}
 Date: {date}
 Tags: {tags}
-Status: draft
+Status: published
 Slug: {slug}
 
 Security (from LJ): {security}
@@ -287,10 +289,14 @@ def comment_to_li(comment):
     return '<li{0}>{1}\n</li>'.format(subject_class, html)
 
 
-def make_md_comment(comment, level=1):
+def make_md_comment(comment, level=0):
+    '''
+    For static site generators like Pelican.
+    See http://docs.getpelican.com/en/stable/content.html#file-metadata for details
 
-    def indent(text):
-        return "    " * level + text
+    Relies on python-markdown extension for adding classes via attribute lists
+    https://pythonhosted.org/Markdown/extensions/attr_list.html
+    '''
 
     md = ''
     if 'state' in comment and comment['state'] == 'D':
@@ -299,33 +305,33 @@ def make_md_comment(comment, level=1):
     comment_date_str = arrow.get(comment['date']).format('MMMM D YYYY, HH:mm:ss')
 
     # Full container for comment
-    md += indent("<div class=b-tree-twig-" + str(level) + ">\n")
+    md += '<div class=lj-comment-wrap style="margin-left:' + str(level*25) + 'px;">\n'
 
     # Top of comment bar: userpic, username, posting time
-    md += indent("  <div class=comment-div>\n")
-
-    # Userpic.  todo: add userpic
-    md += indent("    <div class=b-leaf-userpic>")
-    # md+= shove userpic in here
-    md += indent("    </div>\n")
+    md += "<div class=lj-comment-head>\n"    # Userpic.  todo: add userpic
+    md += "<div class=lj-comment-userpic>\n"
+    md+= '<img src="/static/lj-default-userpic.png" width="100" height="100">\n'
+    md += "</div>\n"
 
     # Comment ljusername and datetime
-    md += indent("    <div class=b-leaf-details>\n")
-    md += indent("      <div class=ljuser>" + comment.get('author', 'anonymous') + "</div>\n")
+    md += "<div class=lj-comment-head-in>\n"
+    md += "<div><span class=lj-comment-user>" + comment.get('author', 'anonymous') + "</span></div>\n"
 
-    md += indent("      <div class=b-leaf-createdtime>" + comment_date_str + "</div>\n")
-    md += indent("    </div>\n")
+    md += "<div><span class=lj-comment-datetime>" + comment_date_str + "</span></div>\n"
     # Bottom of comment bar
-    md += indent("  </div>\n")
-    md += indent("  ::after\n\n")
+
+    md += "</div>\n"    # close lj-comment-head-in
+    md += "</div>\n"    # close lj-comment-head
 
     if 'body' in comment:
-        md += indent("  <div class=b-leaf-article>\n")
-        md += indent("  ") + markdown.markdown(TAGLESS_NEWLINES.sub('<br>\n', comment['body'])) +"\n"
-        md += indent("  </div>\n")
+        md += "<div class=lj-comment-text>\n"
+        md_body = markdown.markdown(TAGLESS_NEWLINES.sub('<br>\n', comment['body']))
+        #print(comment['body'])
+        md += md_body
+        md += "</div>\n"
 
     # Close comment container
-    md += indent("</div>\n\n\n")
+    md += "</div>\n\n"
 
     # Children aren't nested, but are rather indented via their class attributes.  todo: add styles for indent levels
     if len(comment['children']) > 0:
@@ -333,7 +339,12 @@ def make_md_comment(comment, level=1):
         child_comments = [make_md_comment(c, level+1) for c in sorted_children]
         md += '\n'.join(child_comments)
 
-    return md
+    #print(comment.get('author', 'anonymous')+"\n------------")
+
+    rv_md = markdown.markdown(md, ['markdown.extensions.extra'])
+    #print(rv_md)
+
+    return rv_md
 
 
 def comments_to_html(comments):
@@ -378,7 +389,7 @@ def save_as_html(json_post, subfolder, post_comments_html, posts_html_dir, comme
 
     html_filename = os.path.join(parent_dir, post_id + ".html")
     with open(html_filename, 'w') as html_file:
-        html_file.writelines(json_to_html(json_post))
+        html_file.writelines(post_json_to_html(json_post))
         if post_comments_html:
             html_file.write('\n<h2>Comments</h2>\n' + post_comments_html)
 
