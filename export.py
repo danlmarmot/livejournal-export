@@ -24,6 +24,18 @@ HEADERS = {
 
 DOWNLOADED_JOURNALS_DIR = "exported_journals"
 
+# A list of directories created under the /exported_journals/username/ directory
+EXPORT_DIRS = [
+    'posts_xml',
+    'posts_json',
+    'posts_html',
+    'posts_markdown',
+    'comments_xml',
+    'comments_json',
+    'comments_html',
+    'comments_markdown'
+]
+
 TAG = re.compile(r'\[!\[(.*?)\]\(http:\/\/utx.ambience.ru\/img\/.*?\)\]\(.*?\)')
 USER = re.compile(r'<lj user="?(.*?)"?>')
 TAGLESS_NEWLINES = re.compile('(?<!>)\n')
@@ -33,9 +45,9 @@ SLUGS = {}
 
 def main():
     # Setup export directories for this LJ user
-    export_dirs = ensure_export_dirs(DOWNLOADED_JOURNALS_DIR, config.username)
+    export_dirs = ensure_export_dirs(DOWNLOADED_JOURNALS_DIR, config.username, EXPORT_DIRS)
 
-    if True:
+    if False:
         #download_posts(export_dirs['posts-xml'])
         download_comments(export_dirs['comments-xml'], export_dirs['comments-json'], export_dirs['lj_user'])
 
@@ -53,18 +65,15 @@ def main():
         combine(all_posts, all_comments, export_dirs)
 
 
-def ensure_export_dirs(top_dir, lj_user):
+def ensure_export_dirs(top_dir, lj_user, ensure_dirs):
+
+    #make sure the lj_user directory exists
     export_dirs = {
-        "lj_user": os.path.join(top_dir, lj_user),
-        "posts-xml": os.path.join(top_dir, lj_user, 'posts-xml'),
-        "posts-json": os.path.join(top_dir, lj_user, 'posts-json'),
-        "posts-html": os.path.join(top_dir, lj_user, 'posts-html'),
-        "posts-markdown": os.path.join(top_dir, lj_user, 'posts-markdown'),
-        "comments-xml": os.path.join(top_dir, lj_user, 'comments-xml'),
-        "comments-json": os.path.join(top_dir, lj_user, 'comments-json'),
-        "comments-html": os.path.join(top_dir, lj_user, 'comments-html'),
-        "comments-markdown": os.path.join(top_dir, lj_user, 'comments-markdown'),
+        "lj_user": os.path.join(top_dir, lj_user)
     }
+
+    for e in ensure_dirs:
+        export_dirs[e] = os.path.join(top_dir, lj_user, e)
 
     for k, v in export_dirs.items():
         os.makedirs(v, exist_ok=True)
