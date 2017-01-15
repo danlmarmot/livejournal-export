@@ -31,6 +31,8 @@ MIME_EXTENSIONS = {
     "image/png": ".png",
 }
 
+DEFAULT_USERPIC_FILE = 'lj-default-userpic.png'
+
 FOAF_BASE_URL = ".livejournal.com/data/foaf.rdf"
 DOWNLOADED_JOURNALS_DIR = "exported_journals"
 
@@ -60,7 +62,7 @@ def main():
     export_dirs = ensure_export_dirs(DOWNLOADED_JOURNALS_DIR, config.username, EXPORT_DIRS)
 
     # download userpics for lj_user's friends
-    if True:
+    if False:
         pix = download_friends_userpics_for_ljuser(config.username, export_dirs)
         for username, url in pix.items():
             # print(f'key: {k}, value: {v}')
@@ -75,7 +77,7 @@ def main():
         create_posts_json_all_file(export_dirs['posts-xml'], export_dirs['posts-json'])
         create_comments_json_all_file(export_dirs['comments-xml'], export_dirs['comments-json'])
 
-    if False:
+    if True:
         with open(os.path.join(export_dirs['lj_user'], 'all_posts.json'), 'r') as f:
             all_posts = json.load(f)
         with open(os.path.join(export_dirs['lj_user'], 'all_comments.json'), 'r') as f:
@@ -147,6 +149,23 @@ def download_userpic(username, url, download_dir):
         download_filename = Path(download_dir, username + MIME_EXTENSIONS[content_type])
         with open(download_filename , 'wb') as f:
             f.write(r.content)
+
+
+def ensure_userpic(username, export_dirs):
+    rv = ""
+
+    found_file = False
+    for _, ext in MIME_EXTENSIONS.items():
+        test_file = Path(export_dirs['userpics'], username + ext)
+        if test_file.is_file():
+            found_file = True
+            rv = test_file.name
+
+    if not found_file:
+        rv = DEFAULT_USERPIC_FILE
+        # todo: load in the file, just get that user's userpic
+
+    return rv
 
 
 
@@ -380,7 +399,7 @@ def comment_to_li(comment):
     return '<li{0}>{1}\n</li>'.format(subject_class, html)
 
 
-def make_md_comment(comment, level=0):
+def make_md_comment(comment, export_dirs, level=0):
     """
     For static site generators like Pelican.
     See http://docs.getpelican.com/en/stable/content.html#file-metadata for details
@@ -388,6 +407,13 @@ def make_md_comment(comment, level=0):
     Relies on python-markdown extension for adding classes via attribute lists
     https://pythonhosted.org/Markdown/extensions/attr_list.html
     """
+
+    # Ensure the userpic is present, or use the default one
+    commenting_user = comment.get('author', 'anonymous')
+    if commenting_user != 'anonymous':
+        userpic_file = ensure_userpic(comment['author'], export_dirs)
+    else:
+        userpic_file = DEFAULT_USERPIC_FILE
 
     md = ''
     if 'state' in comment and comment['state'] == 'D':
@@ -401,12 +427,12 @@ def make_md_comment(comment, level=0):
     # Top of comment bar: userpic, username, posting time
     md += "<div class=lj-comment-head>\n"  # Userpic.  todo: add userpic
     md += "<div class=lj-comment-userpic>\n"
-    md += '<img src="/static/lj-default-userpic.png" width="100" height="100">\n'
+    md += f'<img src="/static/{userpic_file}" width="100" height="100">\n'
     md += "</div>\n"
 
     # Comment ljusername and datetime
     md += "<div class=lj-comment-head-in>\n"
-    md += "<div><span class=lj-comment-user>" + comment.get('author', 'anonymous') + "</span></div>\n"
+    md += "<div><span class=lj-comment-user>" + commenting_user + "</span></div>\n"
 
     md += "<div><span class=lj-comment-datetime>" + comment_date_str + "</span></div>\n"
     # Bottom of comment bar
@@ -427,7 +453,7 @@ def make_md_comment(comment, level=0):
     # Children aren't nested, but are rather indented via their class attributes.  todo: add styles for indent levels
     if len(comment['children']) > 0:
         sorted_children = sorted(comment['children'], key=itemgetter('id'))
-        child_comments = [make_md_comment(c, level + 1) for c in sorted_children]
+        child_comments = [make_md_comment(c, export_dirs, level + 1) for c in sorted_children]
         md += '\n'.join(child_comments)
 
     # print(comment.get('author', 'anonymous')+"\n------------")
@@ -442,11 +468,11 @@ def comments_to_html(comments):
     return '<ul>\n{0}\n</ul>'.format('\n'.join(map(comment_to_li, sorted(comments, key=itemgetter('id')))))
 
 
-def comments_to_md(comments):
+def comments_to_md(comments, export_dirs):
     rv = "<hr>\n"
     rv += "###Comments\n\n"
     sorted_comments = sorted(comments, key=itemgetter('id'))
-    md_comments = [make_md_comment(c) for c in sorted_comments]
+    md_comments = [make_md_comment(c, export_dirs) for c in sorted_comments]
     rv += '\n'.join(md_comments)
     return rv
 
@@ -507,24 +533,24 @@ def combine(posts, comments, export_dirs):
 
         post_comments = jitemid in posts_comments and nest_comments(posts_comments[jitemid]) or None
         post_comments_html = post_comments and comments_to_html(post_comments) or ''
-        post_comments_md = post_comments and comments_to_md(post_comments) or ''
+        post_comments_md = post_comments and comments_to_md(post_comments, export_dirs) or ''
 
         fix_user_links(json_post)
         json_post['slug'] = get_slug(json_post)
 
         save_as_json(json_post,
                      post_comments,
-                     export_dirs['posts-json'])
+                     export_dirs['posts_json'])
 
         save_as_html(json_post,
                      subfolder,
                      post_comments_html,
-                     export_dirs['posts-html'])
+                     export_dirs['posts_html'])
 
         save_as_markdown(json_post,
                          subfolder,
                          post_comments_md,
-                         export_dirs['posts-markdown']
+                         export_dirs['posts_markdown']
                          )
 
 
