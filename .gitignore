@@ -5,4 +5,4 @@ venv/
 ljconfig.py
 ljconfig-*.py
 
-/exported_journals/*
+exported_journals/

@@ -10,9 +10,12 @@ import fnmatch
 from datetime import datetime
 import arrow
 from operator import itemgetter
-import xml.etree.ElementTree as ET
+import xml.etree.ElementTree as xml_element_tree
+from lxml import etree
 from hashlib import md5
 import requests
+from pathlib import Path
+import time
 
 # User settings are found in ljconfig.py
 import ljconfig as config
@@ -22,6 +25,13 @@ HEADERS = {
     'User-Agent': 'Mozilla/5.0 (Windows NT 8.1; rv:10.0) Gecko/20100101 Firefox/10.0'
 }
 
+MIME_EXTENSIONS = {
+    "image/gif": ".gif",
+    "image/jpeg": ".jpg",
+    "image/png": ".png",
+}
+
+FOAF_BASE_URL = ".livejournal.com/data/foaf.rdf"
 DOWNLOADED_JOURNALS_DIR = "exported_journals"
 
 # A list of directories created under the /exported_journals/username/ directory
@@ -33,10 +43,12 @@ EXPORT_DIRS = [
     'comments_xml',
     'comments_json',
     'comments_html',
-    'comments_markdown'
+    'comments_markdown',
+    'rdfs',
+    'userpics'
 ]
 
-TAG = re.compile(r'\[!\[(.*?)\]\(http:\/\/utx.ambience.ru\/img\/.*?\)\]\(.*?\)')
+TAG = re.compile(r'\[!\[(.*?)\]\(http:/\/utx.ambience.ru\/img\/.*?\)\]\(.*?\)')
 USER = re.compile(r'<lj user="?(.*?)"?>')
 TAGLESS_NEWLINES = re.compile('(?<!>)\n')
 NEWLINES = re.compile('(\s*\n){3,}')
@@ -47,9 +59,16 @@ def main():
     # Setup export directories for this LJ user
     export_dirs = ensure_export_dirs(DOWNLOADED_JOURNALS_DIR, config.username, EXPORT_DIRS)
 
+    # download userpics for lj_user's friends
+    if True:
+        pix = download_friends_userpics_for_ljuser(config.username, export_dirs)
+        for username, url in pix.items():
+            # print(f'key: {k}, value: {v}')
+            download_userpic(username, url, export_dirs['userpics'])
+
     if False:
-        #download_posts(export_dirs['posts-xml'])
-        download_comments(export_dirs['comments-xml'], export_dirs['comments-json'], export_dirs['lj_user'])
+        # download_posts(export_dirs['posts-xml'])
+        download_comments(export_dirs['comments-xml'], export_dirs['comments-json'])
 
     # Generate the all.json files from downloaded posts and comments
     if False:
@@ -65,9 +84,74 @@ def main():
         combine(all_posts, all_comments, export_dirs)
 
 
-def ensure_export_dirs(top_dir, lj_user, ensure_dirs):
+def download_friends_userpics_for_ljuser(ljuser, export_dirs):
+    pix_urls = get_userpic_urls_for_user(ljuser, export_dirs['rdfs'])
+    return pix_urls
 
-    #make sure the lj_user directory exists
+
+def get_userpic_urls_for_user(username, rdf_dir):
+    rv = {}
+
+    ensure_rdf_for_users([username], rdf_dir)
+    user_rdf_file = Path(rdf_dir, username + ".rdf")
+
+    with open(user_rdf_file, 'rb') as f:
+        root = etree.XML(f.read())
+
+    records = root.xpath('//foaf:Person', namespaces={"foaf": "http://xmlns.com/foaf/0.1/"})
+    for r in records:
+        nick_elem = r.find('{http://xmlns.com/foaf/0.1/}nick')
+        if nick_elem is not None and len(nick_elem.text):
+            nick = nick_elem.text
+        else:
+            continue
+
+        image_elem = r.find('{http://xmlns.com/foaf/0.1/}image')
+        if image_elem is not None:
+            image_url = image_elem.text
+        else:
+            continue
+
+        rv[nick] = image_url
+    return rv
+
+
+def ensure_rdf_for_users(users, rdf_dir):
+    for username in users:
+        user_rdf_file = Path(rdf_dir, username + ".rdf")
+        if user_rdf_file.is_file():
+            print(username + " yep, got the file")
+        else:
+            print(username + " nope, no file")
+            download_foaf_rdf(username, rdf_dir)
+            time.sleep(2)  # play nice and sleep for two seconds
+
+    return users
+
+
+def download_foaf_rdf(username, rdf_dir):
+    url = f'http://{username}{FOAF_BASE_URL}'
+    save_file = Path(rdf_dir, username + ".rdf")
+
+    r = requests.get(url)
+    if r.status_code == requests.codes.ok:
+        with open(save_file, 'wb') as f:
+            f.write(r.content)
+
+
+def download_userpic(username, url, download_dir):
+
+    r = requests.get(url)
+    if r.status_code == requests.codes.ok:
+        content_type = r.headers['content-type']
+        download_filename = Path(download_dir, username + MIME_EXTENSIONS[content_type])
+        with open(download_filename , 'wb') as f:
+            f.write(r.content)
+
+
+
+def ensure_export_dirs(top_dir, lj_user, ensure_dirs):
+    # make sure the lj_user directory exists
     export_dirs = {
         "lj_user": os.path.join(top_dir, lj_user)
     }
@@ -93,7 +177,7 @@ def create_posts_json_all_file(posts_xml_dir, lj_user_dir):
     xml_files = find_files_by_pattern('*.xml', posts_xml_dir)
     for xml_file in xml_files:
         with open(xml_file, 'rt') as f:
-            xml_posts.extend(list(ET.fromstring(f.read()).iter('entry')))
+            xml_posts.extend(list(xml_element_tree.fromstring(f.read()).iter('entry')))
 
     json_posts = list(map(post_xml_to_json, xml_posts))
     posts_json_all_filename = os.path.join(lj_user_dir, 'all_posts.json')
@@ -125,7 +209,7 @@ def create_comments_json_all_file(comments_xml_dir, lj_user_dir):
 def extract_comments_from_xml(xml, user_map):
     comments = []
 
-    for comment_xml in ET.fromstring(xml).iter('comment'):
+    for comment_xml in xml_element_tree.fromstring(xml).iter('comment'):
         comment = {
             'jitemid': int(comment_xml.attrib['jitemid']),
             'id': int(comment_xml.attrib['id']),
@@ -148,13 +232,13 @@ def extract_comments_from_xml(xml, user_map):
     return comments
 
 
-def download_comments(comments_xml_dir, comments_json_dir, lj_user_dir):
+def download_comments(comments_xml_dir, lj_user_dir):
     comments_metadata_filename = os.path.join(comments_xml_dir, "comment_meta.xml")
     metadata_xml = fetch_xml({'get': 'comment_meta', 'startid': 0})
     with open(comments_metadata_filename, 'w') as f:
         f.write(metadata_xml)
 
-    metadata = ET.fromstring(metadata_xml)
+    metadata = xml_element_tree.fromstring(metadata_xml)
     users = get_users_map(metadata, lj_user_dir)
 
     start_id = -1
@@ -175,8 +259,6 @@ def fix_user_links(json_dict):
 
 
 def post_json_to_html(json_dict):
-    html = ''
-
     return """<!doctype html>
 <meta charset="utf-8">
 <title>{subject}</title>
@@ -299,13 +381,13 @@ def comment_to_li(comment):
 
 
 def make_md_comment(comment, level=0):
-    '''
+    """
     For static site generators like Pelican.
     See http://docs.getpelican.com/en/stable/content.html#file-metadata for details
 
     Relies on python-markdown extension for adding classes via attribute lists
     https://pythonhosted.org/Markdown/extensions/attr_list.html
-    '''
+    """
 
     md = ''
     if 'state' in comment and comment['state'] == 'D':
@@ -314,12 +396,12 @@ def make_md_comment(comment, level=0):
     comment_date_str = arrow.get(comment['date']).format('MMMM D YYYY, HH:mm:ss')
 
     # Full container for comment
-    md += '<div class=lj-comment-wrap style="margin-left:' + str(level*25) + 'px;">\n'
+    md += '<div class=lj-comment-wrap style="margin-left:' + str(level * 25) + 'px;">\n'
 
     # Top of comment bar: userpic, username, posting time
-    md += "<div class=lj-comment-head>\n"    # Userpic.  todo: add userpic
+    md += "<div class=lj-comment-head>\n"  # Userpic.  todo: add userpic
     md += "<div class=lj-comment-userpic>\n"
-    md+= '<img src="/static/lj-default-userpic.png" width="100" height="100">\n'
+    md += '<img src="/static/lj-default-userpic.png" width="100" height="100">\n'
     md += "</div>\n"
 
     # Comment ljusername and datetime
@@ -329,13 +411,13 @@ def make_md_comment(comment, level=0):
     md += "<div><span class=lj-comment-datetime>" + comment_date_str + "</span></div>\n"
     # Bottom of comment bar
 
-    md += "</div>\n"    # close lj-comment-head-in
-    md += "</div>\n"    # close lj-comment-head
+    md += "</div>\n"  # close lj-comment-head-in
+    md += "</div>\n"  # close lj-comment-head
 
     if 'body' in comment:
         md += "<div class=lj-comment-text>\n"
         md_body = markdown.markdown(TAGLESS_NEWLINES.sub('<br>\n', comment['body']))
-        #print(comment['body'])
+        # print(comment['body'])
         md += md_body
         md += "</div>\n"
 
@@ -345,13 +427,13 @@ def make_md_comment(comment, level=0):
     # Children aren't nested, but are rather indented via their class attributes.  todo: add styles for indent levels
     if len(comment['children']) > 0:
         sorted_children = sorted(comment['children'], key=itemgetter('id'))
-        child_comments = [make_md_comment(c, level+1) for c in sorted_children]
+        child_comments = [make_md_comment(c, level + 1) for c in sorted_children]
         md += '\n'.join(child_comments)
 
-    #print(comment.get('author', 'anonymous')+"\n------------")
+    # print(comment.get('author', 'anonymous')+"\n------------")
 
     rv_md = markdown.markdown(md, ['markdown.extensions.extra'])
-    #print(rv_md)
+    # print(rv_md)
 
     return rv_md
 
@@ -378,7 +460,7 @@ def save_as_json(json_post, post_comments, posts_json_dir):
 
 
 def save_as_markdown(json_post, subfolder, post_comments_md,
-                     posts_markdown_dir, comments_markdown_dir):
+                     posts_markdown_dir):
     parent_md_dir = os.path.join(posts_markdown_dir, subfolder)
     os.makedirs(parent_md_dir, exist_ok=True)
 
@@ -390,7 +472,7 @@ def save_as_markdown(json_post, subfolder, post_comments_md,
             md_file.write('\n' + post_comments_md)
 
 
-def save_as_html(json_post, subfolder, post_comments_html, posts_html_dir, comments_html_dir):
+def save_as_html(json_post, subfolder, post_comments_html, posts_html_dir):
     post_id = json_post['id']
 
     parent_dir = os.path.join(posts_html_dir, subfolder)
@@ -437,14 +519,13 @@ def combine(posts, comments, export_dirs):
         save_as_html(json_post,
                      subfolder,
                      post_comments_html,
-                     export_dirs['posts-html'],
-                     export_dirs['comments-html'])
+                     export_dirs['posts-html'])
 
         save_as_markdown(json_post,
                          subfolder,
                          post_comments_md,
-                         export_dirs['posts-markdown'],
-                         export_dirs['comments-markdown'])
+                         export_dirs['posts-markdown']
+                         )
 
 
 # Downloads for posts
@@ -547,7 +628,7 @@ def get_more_comments(start_id, users, comments_xml_dir):
     with open(comments_xml_filename, 'w') as f:
         f.write(xml)
 
-    for comment_xml in ET.fromstring(xml).iter('comment'):
+    for comment_xml in xml_element_tree.fromstring(xml).iter('comment'):
         comment = {
             'jitemid': int(comment_xml.attrib['jitemid']),
             'id': int(comment_xml.attrib['id']),
