@@ -180,6 +180,8 @@ def get_userpic(username, pix_dir=None, url=None, download=True, force_download=
             rv['filename'] = userdata.get('filename', DEFAULT_USERPIC_FILE)
             rv['state'] = userdata['state']
             local_state = True
+        else:
+            local_state = False
 
     if not force_download and not local_state:
         for _, ext in MIME_EXTENSIONS.items():
@@ -231,8 +233,12 @@ def get_userpic(username, pix_dir=None, url=None, download=True, force_download=
         orig_pic_file = Path(pix_dir, rv['filename'])
         to_pic_file = Path(copy_dir, rv['filename'])
 
-        if orig_pic_file.is_file() and Path(copy_dir).is_dir():
-            shutil.copy(str(orig_pic_file), str(to_pic_file))
+        # don't copy pics if they're already there
+        if not to_pic_file.is_file():
+
+            # ensure there's both a source file and a destination directory, then copy
+            if orig_pic_file.is_file() and Path(copy_dir).is_dir():
+                shutil.copy(str(orig_pic_file), str(to_pic_file))
 
     return rv
 

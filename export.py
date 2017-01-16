@@ -32,6 +32,10 @@ MIME_EXTENSIONS = {
 
 DOWNLOADED_JOURNALS_DIR = "exported_journals"
 
+# defines the relative location for locating userpics in comments, no leading or trailing /
+STATIC_USERPIC_PART = 'static/userpics'
+
+
 # A list of directories created under the /exported_journals/username/ directory
 EXPORT_DIRS = [
     'posts_xml',
@@ -59,7 +63,7 @@ def main():
     export_dirs = ensure_export_dirs(DOWNLOADED_JOURNALS_DIR, config.username, EXPORT_DIRS)
 
     # Get userpics for lj_user's friends
-    if True:
+    if False:
         log.info("Getting friends pics")
         get_friend_pics = userpics.get_friends_default_pics_for_user(config.username, copy_dir=export_dirs['userpics'])
 
@@ -327,7 +331,10 @@ def make_md_comment(comment, export_dirs, level=0):
     # Ensure the userpic is present, or use the default one
     commenting_user = comment.get('author', 'anonymous')
 
-    userpic_file = userpics.get_userpic(commenting_user, copy_dir=export_dirs['userpics'])
+    userpic = userpics.get_userpic(commenting_user, copy_dir=export_dirs['userpics'])
+    userpic_file = userpic.get('filename', None)
+    if userpic_file is None:
+        userpic_file = userpics.DEFAULT_USERPIC_FILE
 
     md = ''
     if 'state' in comment and comment['state'] == 'D':
@@ -340,8 +347,10 @@ def make_md_comment(comment, export_dirs, level=0):
 
     # Top of comment bar: userpic, username, posting time
     md += "<div class=lj-comment-head>\n"  # Userpic.
+
     md += "<div class=lj-comment-userpic>\n"
-    md += f'<img src="/static/{userpic_file}" width="100" height="100">\n'
+    img_src = '<img src="/' + STATIC_USERPIC_PART + '/' + userpic_file + '" width="100" height="100">\n'
+    md += img_src
     md += "</div>\n"
 
     # Comment ljusername and datetime
