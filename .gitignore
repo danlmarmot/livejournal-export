@@ -7,3 +7,4 @@ ljconfig-*.py
 
 exported_journals/
 /userpics/
+!/userpics/pix/lj-default-userpic.png

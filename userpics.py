@@ -18,38 +18,46 @@ MIME_EXTENSIONS = {
 
 USERPIC_WORKING_DIR = "userpics"
 USERPIC_METADATA_FILE = Path(USERPIC_WORKING_DIR, "userpics_metadata.json")
-INITIAL_USERPIC_METADATA = {}
 
-# ---
-# Testing values
+INITIAL_USERPIC_METADATA = {
+    'anonymous': {
+        'username': 'anonymous',
+        'filename': 'lj-default-userpic.png',
+        'state': 'local'
+    }
+}
 
-LJ_USER = ''
 
-
+# For testing
 def main():
-    userpic_dirs = ensure_userpic_dirs(USERPIC_WORKING_DIR)
-    get_friends_default_pics_for_user(LJ_USER, userpic_dirs['pix'], userpic_dirs['rdfs'])
+    lj_user = ''
+    get_friends_default_pics_for_user(lj_user)
 
 
-def get_friends_default_pics_for_user(username, userpix_dir, rdf_dir):
-    rv = {}
+def get_friends_default_pics_for_user(username):
+    rv = {
+        "status": "ok"
+    }
+
+    userpix_dir = userpic_dirs['pix']
+    rdf_dir = userpic_dirs['rdfs']
+
     # Get the user FOAF rdf file
     user_rdf_file = ensure_rdf_for_user(username, rdf_dir)
     if not user_rdf_file:
+        rv = {
+            "status": "error",
+            "reason": "rdf file not found"
+        }
         return rv
 
     # Get a dictionary of URLs to download from the rdf file
     pix_urls = get_userpic_urls_from_rdf(user_rdf_file)
 
     for username, pic_url in pix_urls.items():
-        resp = get_userpic(username, userpix_dir, url=pic_url)
+        _ = get_userpic(username, userpix_dir, url=pic_url)
 
-        if resp['status'] == 'ok' and resp['state'] == 'downloaded':
-            print(f'Downloaded {resp["filename"]}')
-        elif resp['status'] == 'ok' and resp['state'] == 'local':
-            print(f'{resp["filename"]} present locally')
-        else:
-            print(f'Something wrong with {resp["filename"]}')
+    return rv
 
 
 def get_userpic_urls_from_rdf(rdf_file, username=None):
@@ -145,25 +153,16 @@ def download_rdf(username, download_dir):
         return None
 
 
-def ensure_userpic_dirs(top_dir):
-    export_dirs = {
-        "rdfs": os.path.join(top_dir, 'rdfs'),
-        "pix": os.path.join(top_dir, 'pix'),
-    }
-
-    for k, v in export_dirs.items():
-        os.makedirs(v, exist_ok=True)
-
-    return export_dirs
-
-
-def get_userpic(username, pix_dir, url=None, download=True, force_download=False):
+def get_userpic(username, pix_dir=None, url=None, download=True, force_download=False):
     rv = {
         'username': username,
         'status': None,
         'filename': None,
         'state': None
     }
+
+    if not pix_dir:
+        pix_dir = userpic_dirs['pix']
 
     found_file = False
 
@@ -190,26 +189,69 @@ def get_userpic(username, pix_dir, url=None, download=True, force_download=False
                 break
 
     if (not found_file and download) or force_download:
-        r = requests.get(url)
-        if r.status_code == requests.codes.ok:
-            content_type = r.headers['content-type']
-            download_file = username + MIME_EXTENSIONS[content_type]
-            with open(download_file, 'wb') as f:
-                f.write(r.content)
+        if url is None:
+            # go get the URL
+            # userpix_dir = userpic_dirs['pix']
+            rdf_dir = userpic_dirs['rdfs']
 
-            time.sleep(1)  # avoids throttling
+            # Get the user FOAF rdf file
+            user_rdf_file = ensure_rdf_for_user(username, rdf_dir)
+            if not user_rdf_file:
+                rv = {**rv, **{
+                    "status": "error",
+                    "state": "local",
+                    "reason": "rdf file not found",
+                    "filename": DEFAULT_USERPIC_FILE
+                }
+                      }
+                update_metadata(rv)
+                return rv
 
-            rv['status'] = 'ok'
-            rv['filename'] = str(download_file)
-            rv['state'] = 'downloaded'
+            # Get a dictionary of URLs to download from the rdf file
+            pix_urls = get_userpic_urls_from_rdf(user_rdf_file, username)
+
+            for username, pic_url in pix_urls.items():
+                rv = download_userpic(username, pic_url, pix_dir)
+
+                # Update metadata file for this user
+                update_metadata(rv)
+
+            # this returns the last value, which isn't quite right but is ok
+            return rv
 
         else:
-            rv['status'] = 'error'
-            rv['filename'] = DEFAULT_USERPIC_FILE
-            rv['state'] = 'not downloaded'
+            rv = download_userpic(username, url, pix_dir)
 
-    # Update metadata file for this user
     update_metadata(rv)
+
+    return rv
+
+
+def download_userpic(username, url, download_dir):
+    rv = {
+        'username': username,
+        'status': None,
+        'filename': None,
+        'state': None
+    }
+
+    r = requests.get(url)
+    if r.status_code == requests.codes.ok:
+        content_type = r.headers['content-type']
+        download_file = Path(download_dir, username + MIME_EXTENSIONS[content_type])
+        with open(download_file, 'wb') as f:
+            f.write(r.content)
+
+        time.sleep(1)  # avoids throttling
+
+        rv['status'] = 'ok'
+        rv['filename'] = str(download_file)
+        rv['state'] = 'downloaded'
+
+    else:
+        rv['status'] = 'error'
+        rv['filename'] = DEFAULT_USERPIC_FILE
+        rv['state'] = 'not downloaded'
 
     return rv
 
@@ -244,10 +286,6 @@ def read_metadata(filepath=USERPIC_METADATA_FILE):
     return json_loaded
 
 
-# Load this reference into the global namespace
-userpics_meta = read_metadata()
-
-
 def update_metadata(userdata, metadata_file=USERPIC_METADATA_FILE):
     user_to_update = userdata['username']
     existing_userdata = userpics_meta.get(user_to_update, {})
@@ -259,6 +297,23 @@ def update_metadata(userdata, metadata_file=USERPIC_METADATA_FILE):
         f.write(json.dumps(userpics_meta, ensure_ascii=False, indent=2))
 
     return userpics_meta
+
+
+def ensure_userpic_dirs(top_dir):
+    export_dirs = {
+        "rdfs": os.path.join(top_dir, 'rdfs'),
+        "pix": os.path.join(top_dir, 'pix'),
+    }
+
+    for k, v in export_dirs.items():
+        os.makedirs(v, exist_ok=True)
+
+    return export_dirs
+
+
+# -----
+userpic_dirs = ensure_userpic_dirs(USERPIC_WORKING_DIR)
+userpics_meta = read_metadata()
 
 if __name__ == '__main__':
     main()

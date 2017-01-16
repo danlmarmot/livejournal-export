@@ -1,24 +1,23 @@
 #!/usr/bin/python3
 
-import sys
+import fnmatch
 import json
+import logging
 import os
 import re
+import sys
+import xml.etree.ElementTree as xml_element_tree
+from datetime import datetime
+from hashlib import md5
+from operator import itemgetter
+
+import arrow
 import html2text
 import markdown
-import fnmatch
-from datetime import datetime
-import arrow
-from operator import itemgetter
-import xml.etree.ElementTree as xml_element_tree
-from lxml import etree
-from hashlib import md5
 import requests
-from pathlib import Path
-import time
 
-# User settings are found in ljconfig.py
 import ljconfig as config
+import userpics
 
 # Other constants
 HEADERS = {
@@ -31,9 +30,6 @@ MIME_EXTENSIONS = {
     "image/png": ".png",
 }
 
-DEFAULT_USERPIC_FILE = 'lj-default-userpic.png'
-
-FOAF_BASE_URL = ".livejournal.com/data/foaf.rdf"
 DOWNLOADED_JOURNALS_DIR = "exported_journals"
 
 # A list of directories created under the /exported_journals/username/ directory
@@ -45,9 +41,7 @@ EXPORT_DIRS = [
     'comments_xml',
     'comments_json',
     'comments_html',
-    'comments_markdown',
-    'rdfs',
-    'userpics'
+    'comments_markdown'
 ]
 
 TAG = re.compile(r'\[!\[(.*?)\]\(http:/\/utx.ambience.ru\/img\/.*?\)\]\(.*?\)')
@@ -56,17 +50,21 @@ TAGLESS_NEWLINES = re.compile('(?<!>)\n')
 NEWLINES = re.compile('(\s*\n){3,}')
 SLUGS = {}
 
+global log
+
 
 def main():
     # Setup export directories for this LJ user
     export_dirs = ensure_export_dirs(DOWNLOADED_JOURNALS_DIR, config.username, EXPORT_DIRS)
 
-    # download userpics for lj_user's friends
-    if False:
-        pix = download_friends_userpics_for_ljuser(config.username, export_dirs)
-        for username, url in pix.items():
-            # print(f'key: {k}, value: {v}')
-            download_userpic(username, url, export_dirs['userpics'])
+    # Get userpics for lj_user's friends
+    if True:
+        log.info("Getting friends pics")
+        get_friend_pics = userpics.get_friends_default_pics_for_user(config.username)
+
+        if get_friend_pics.get('status', False) != 'ok':
+            log.critical("Something went wrong ' + get_friend_pics.get('reason', ' (unknown reason)")
+            sys.exit(1)
 
     if False:
         # download_posts(export_dirs['posts-xml'])
@@ -84,89 +82,6 @@ def main():
             all_comments = json.load(f)
 
         combine(all_posts, all_comments, export_dirs)
-
-
-def download_friends_userpics_for_ljuser(ljuser, export_dirs):
-    pix_urls = get_userpic_urls_for_user(ljuser, export_dirs['rdfs'])
-    return pix_urls
-
-
-def get_userpic_urls_for_user(username, rdf_dir):
-    rv = {}
-
-    ensure_rdf_for_users([username], rdf_dir)
-    user_rdf_file = Path(rdf_dir, username + ".rdf")
-
-    with open(user_rdf_file, 'rb') as f:
-        root = etree.XML(f.read())
-
-    records = root.xpath('//foaf:Person', namespaces={"foaf": "http://xmlns.com/foaf/0.1/"})
-    for r in records:
-        nick_elem = r.find('{http://xmlns.com/foaf/0.1/}nick')
-        if nick_elem is not None and len(nick_elem.text):
-            nick = nick_elem.text
-        else:
-            continue
-
-        image_elem = r.find('{http://xmlns.com/foaf/0.1/}image')
-        if image_elem is not None:
-            image_url = image_elem.text
-        else:
-            continue
-
-        rv[nick] = image_url
-    return rv
-
-
-def ensure_rdf_for_users(users, rdf_dir):
-    for username in users:
-        user_rdf_file = Path(rdf_dir, username + ".rdf")
-        if user_rdf_file.is_file():
-            print(username + " yep, got the file")
-        else:
-            print(username + " nope, no file")
-            download_foaf_rdf(username, rdf_dir)
-            time.sleep(2)  # play nice and sleep for two seconds
-
-    return users
-
-
-def download_foaf_rdf(username, rdf_dir):
-    url = f'http://{username}{FOAF_BASE_URL}'
-    save_file = Path(rdf_dir, username + ".rdf")
-
-    r = requests.get(url)
-    if r.status_code == requests.codes.ok:
-        with open(save_file, 'wb') as f:
-            f.write(r.content)
-
-
-def download_userpic(username, url, download_dir):
-
-    r = requests.get(url)
-    if r.status_code == requests.codes.ok:
-        content_type = r.headers['content-type']
-        download_filename = Path(download_dir, username + MIME_EXTENSIONS[content_type])
-        with open(download_filename , 'wb') as f:
-            f.write(r.content)
-
-
-def ensure_userpic(username, export_dirs):
-    rv = ""
-
-    found_file = False
-    for _, ext in MIME_EXTENSIONS.items():
-        test_file = Path(export_dirs['userpics'], username + ext)
-        if test_file.is_file():
-            found_file = True
-            rv = test_file.name
-
-    if not found_file:
-        rv = DEFAULT_USERPIC_FILE
-        # todo: load in the file, just get that user's userpic
-
-    return rv
-
 
 
 def ensure_export_dirs(top_dir, lj_user, ensure_dirs):
@@ -410,10 +325,8 @@ def make_md_comment(comment, export_dirs, level=0):
 
     # Ensure the userpic is present, or use the default one
     commenting_user = comment.get('author', 'anonymous')
-    if commenting_user != 'anonymous':
-        userpic_file = ensure_userpic(comment['author'], export_dirs)
-    else:
-        userpic_file = DEFAULT_USERPIC_FILE
+
+    userpic_file = userpics.get_userpic(commenting_user)
 
     md = ''
     if 'state' in comment and comment['state'] == 'D':
@@ -425,7 +338,7 @@ def make_md_comment(comment, export_dirs, level=0):
     md += '<div class=lj-comment-wrap style="margin-left:' + str(level * 25) + 'px;">\n'
 
     # Top of comment bar: userpic, username, posting time
-    md += "<div class=lj-comment-head>\n"  # Userpic.  todo: add userpic
+    md += "<div class=lj-comment-head>\n"  # Userpic.
     md += "<div class=lj-comment-userpic>\n"
     md += f'<img src="/static/{userpic_file}" width="100" height="100">\n'
     md += "</div>\n"
@@ -450,7 +363,7 @@ def make_md_comment(comment, export_dirs, level=0):
     # Close comment container
     md += "</div>\n\n"
 
-    # Children aren't nested, but are rather indented via their class attributes.  todo: add styles for indent levels
+    # Children aren't nested, but are rather indented via their class attributes.
     if len(comment['children']) > 0:
         sorted_children = sorted(comment['children'], key=itemgetter('id'))
         child_comments = [make_md_comment(c, export_dirs, level + 1) for c in sorted_children]
@@ -522,8 +435,11 @@ def save_as_html(json_post, subfolder, post_comments_html, posts_html_dir):
 def combine(posts, comments, export_dirs):
     posts_comments = group_comments_by_post(comments)
 
-    for json_post in posts:
+    num_posts = len(posts)
+    for i, json_post in enumerate(posts):
         post_id = json_post['id']
+        log.info(f'Generating post {i} of {num_posts} (post_id {post_id})')
+
         jitemid = int(post_id) >> 8
 
         date = datetime.strptime(json_post['date'], '%Y-%m-%d %H:%M:%S')
@@ -714,5 +630,21 @@ def make_md5_from_challenge(challenge):
     return full_encoded
 
 
+def setup_logging():
+    # for thread debugging, this is helpful:
+    # format='%(asctime)5s %(threadName)10s %(name)18s: %(message)s'
+
+    logstr_format = "%(asctime)s | %(levelname)-8s | %(funcName)s:%(lineno)s | %(message)s"
+    logging.basicConfig(
+        level=logging.INFO,
+        stream=sys.stderr,
+        format=logstr_format,
+        datefmt="%Y-%m-%d %H:%M:%S"
+    )
+
+
 if __name__ == '__main__':
+    setup_logging()
+    log = logging.getLogger()
+
     main()
