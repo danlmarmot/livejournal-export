@@ -41,7 +41,8 @@ EXPORT_DIRS = [
     'comments_xml',
     'comments_json',
     'comments_html',
-    'comments_markdown'
+    'comments_markdown',
+    'userpics'
 ]
 
 TAG = re.compile(r'\[!\[(.*?)\]\(http:/\/utx.ambience.ru\/img\/.*?\)\]\(.*?\)')
@@ -60,7 +61,7 @@ def main():
     # Get userpics for lj_user's friends
     if True:
         log.info("Getting friends pics")
-        get_friend_pics = userpics.get_friends_default_pics_for_user(config.username)
+        get_friend_pics = userpics.get_friends_default_pics_for_user(config.username, copy_dir=export_dirs['userpics'])
 
         if get_friend_pics.get('status', False) != 'ok':
             log.critical("Something went wrong ' + get_friend_pics.get('reason', ' (unknown reason)")
@@ -326,7 +327,7 @@ def make_md_comment(comment, export_dirs, level=0):
     # Ensure the userpic is present, or use the default one
     commenting_user = comment.get('author', 'anonymous')
 
-    userpic_file = userpics.get_userpic(commenting_user)
+    userpic_file = userpics.get_userpic(commenting_user, copy_dir=export_dirs['userpics'])
 
     md = ''
     if 'state' in comment and comment['state'] == 'D':

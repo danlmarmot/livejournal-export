@@ -4,6 +4,7 @@ from pathlib import Path
 import time
 from lxml import etree
 import json
+import shutil
 
 BASE_URL = ".livejournal.com/data/foaf.rdf"
 
@@ -34,7 +35,7 @@ def main():
     get_friends_default_pics_for_user(lj_user)
 
 
-def get_friends_default_pics_for_user(username):
+def get_friends_default_pics_for_user(username, copy_dir=None):
     rv = {
         "status": "ok"
     }
@@ -55,7 +56,7 @@ def get_friends_default_pics_for_user(username):
     pix_urls = get_userpic_urls_from_rdf(user_rdf_file)
 
     for username, pic_url in pix_urls.items():
-        _ = get_userpic(username, userpix_dir, url=pic_url)
+        _ = get_userpic(username, userpix_dir, url=pic_url, copy_dir=copy_dir)
 
     return rv
 
@@ -153,7 +154,7 @@ def download_rdf(username, download_dir):
         return None
 
 
-def get_userpic(username, pix_dir=None, url=None, download=True, force_download=False):
+def get_userpic(username, pix_dir=None, url=None, download=True, force_download=False, copy_dir=None):
     rv = {
         'username': username,
         'status': None,
@@ -161,10 +162,12 @@ def get_userpic(username, pix_dir=None, url=None, download=True, force_download=
         'state': None
     }
 
+    # Set to true to copy the userpic to another directory, such as a 'userpics' folder
     if not pix_dir:
         pix_dir = userpic_dirs['pix']
 
     found_file = False
+    local_state = True
 
     # Check in the metadata file first and return early if not forcing a download
     if userpics_meta.get(username, False) and not force_download:
@@ -176,9 +179,9 @@ def get_userpic(username, pix_dir=None, url=None, download=True, force_download=
             rv['status'] = 'ok'
             rv['filename'] = userdata.get('filename', DEFAULT_USERPIC_FILE)
             rv['state'] = userdata['state']
-            return rv
+            local_state = True
 
-    if not force_download:
+    if not force_download and not local_state:
         for _, ext in MIME_EXTENSIONS.items():
             test_file = Path(pix_dir, username + ext)
             if test_file.is_file():
@@ -188,7 +191,7 @@ def get_userpic(username, pix_dir=None, url=None, download=True, force_download=
                 rv['state'] = 'local'
                 break
 
-    if (not found_file and download) or force_download:
+    if (not found_file and not local_state and download) or force_download:
         if url is None:
             # go get the URL
             # userpix_dir = userpic_dirs['pix']
@@ -223,6 +226,13 @@ def get_userpic(username, pix_dir=None, url=None, download=True, force_download=
             rv = download_userpic(username, url, pix_dir)
 
     update_metadata(rv)
+
+    if copy_dir and rv['filename']:
+        orig_pic_file = Path(pix_dir, rv['filename'])
+        to_pic_file = Path(copy_dir, rv['filename'])
+
+        if orig_pic_file.is_file() and Path(copy_dir).is_dir():
+            shutil.copy(str(orig_pic_file), str(to_pic_file))
 
     return rv
 
