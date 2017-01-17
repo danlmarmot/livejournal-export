@@ -10,6 +10,8 @@ import xml.etree.ElementTree as xml_element_tree
 from datetime import datetime
 from hashlib import md5
 from operator import itemgetter
+from pathlib import Path
+from lxml import etree
 
 import arrow
 import html2text
@@ -34,7 +36,6 @@ DOWNLOADED_JOURNALS_DIR = "exported_journals"
 
 # defines the relative location for locating userpics in comments, no leading or trailing /
 STATIC_USERPIC_PART = 'static/userpics'
-
 
 # A list of directories created under the /exported_journals/username/ directory
 EXPORT_DIRS = [
@@ -71,14 +72,17 @@ def main():
             log.critical("Something went wrong ' + get_friend_pics.get('reason', ' (unknown reason)")
             sys.exit(1)
 
-    if False:
-        # download_posts(export_dirs['posts-xml'])
-        download_comments(export_dirs['comments-xml'], export_dirs['comments-json'])
+    if True:
+        # log.info("Downloading posts")
+        # download_posts(export_dirs['posts_xml'])
+
+        log.info("Downloading comments")
+        download_comments(export_dirs['comments_xml'], export_dirs['lj_user'])
 
     # Generate the all.json files from downloaded posts and comments
-    if False:
-        create_posts_json_all_file(export_dirs['posts-xml'], export_dirs['posts-json'])
-        create_comments_json_all_file(export_dirs['comments-xml'], export_dirs['comments-json'])
+    if True:
+        create_posts_json_all_file(export_dirs['posts_xml'], export_dirs['lj_user'])
+        create_comments_json_all_file(export_dirs['comments_xml'], export_dirs['lj_user'])
 
     if True:
         with open(os.path.join(export_dirs['lj_user'], 'all_posts.json'), 'r') as f:
@@ -171,21 +175,74 @@ def extract_comments_from_xml(xml, user_map):
     return comments
 
 
+# Comment metadata is paged, and used to build the usermap
+def download_comment_metadata(comments_xml_dir, lj_user_dir):
+    log.info(f"Fetching comment metadata, starting at comment {str(start_id)}")
+
+    for metadata_xml in get_comment_metadata_xml(comments_xml_dir):
+        update_users_map(metadata_xml, lj_user_dir)
+
+
+def get_comment_metadata_xml(comments_xml_dir, start_id=0):
+    log.info("Fetching comment metadata for usermap")
+    metadata_file = Path(comments_xml_dir, f'comment_meta-{str(start_id)}.xml')
+
+    if metadata_file.is_file():
+        # metadata downloaded, read it in
+
+        log.info(f"  Reading local file for metadata: comment_meta-{str(start_id)}.xml")
+        with open(metadata_file, 'rb') as f:
+            root = etree.XML(f.read())
+
+    else:
+
+        log.info(f"  Downloading file for comment_meta-{str(start_id)}.xml")
+        response = requests.get(
+            'http://www.livejournal.com/export_comments.bml',
+            params={'get': 'comment_meta', 'startid': start_id},
+            headers=config.header,
+            cookies=get_cookies()
+        )
+
+        if requests.codes.ok:
+            with open(metadata_file, 'w') as f:
+                f.write(response.text)
+                # note r.content used, not r.text, to avoid encoding mismatch error from lxml
+                root = etree.XML(response.content)
+
+    yield root
+
+    max_id = root.findtext('maxid')
+    next_id = root.findtext('nextid')
+    if next_id and (int(next_id) < int(max_id)):
+        yield from get_comment_metadata_xml(comments_xml_dir, start_id=next_id)
+
+
 def download_comments(comments_xml_dir, lj_user_dir):
-    comments_metadata_filename = os.path.join(comments_xml_dir, "comment_meta.xml")
-    metadata_xml = fetch_xml({'get': 'comment_meta', 'startid': 0})
-    with open(comments_metadata_filename, 'w') as f:
-        f.write(metadata_xml)
+    # Get users from usermap file
+    users = get_users_map(comments_xml_dir, lj_user_dir)
 
-    metadata = xml_element_tree.fromstring(metadata_xml)
-    users = get_users_map(metadata, lj_user_dir)
-
-    start_id = -1
-    max_id = int(metadata.find('maxid').text)
-    while start_id < max_id:
-        start_id, comments = get_more_comments(start_id + 1, users, comments_xml_dir)
+    # Download comments
+    # start_id = -1
+    # while start_id < max_id:
+    #     start_id, comments = get_more_comments(start_id + 1, users, comments_xml_dir)
 
     return
+
+
+def get_users_map(comments_xml_dir, lj_user_dir, force=False):
+    usermap_file = Path(lj_user_dir, 'comments_user_map.json')
+
+    # Create it if not present, or forced
+    if not usermap_file.is_file() or force:
+        for metadata_xml in get_comment_metadata_xml(comments_xml_dir):
+            update_users_map(metadata_xml, lj_user_dir)
+
+    # Read it in
+    with open(usermap_file, 'r') as f:
+        users_map = json.load(f)
+
+    return users_map
 
 
 def fix_user_links(json_dict):
@@ -490,7 +547,7 @@ def fetch_month_posts(year, month):
         data={
             'what': 'journal',
             'year': year,
-            'month': '{0:02d}'.format(month),
+            'month': '{0:02d}'.format(int(month)),
             'format': 'xml',
             'header': 'on',
             'encid': '2',
@@ -526,13 +583,18 @@ def post_xml_to_json(xml):
 
 
 def download_posts(posts_xml_dir):
-    for year in config.years_to_download:
-        for month in range(1, 13):
-            print("Fetching for " + str(month) + ", " + str(year))
-            xml = fetch_month_posts(year, month)
-            posts_xml_filename = os.path.join(posts_xml_dir, '{0}-{1:02d}.xml'.format(year, month))
-            with open(posts_xml_filename, 'w+') as file:
-                file.write(xml)
+    start_date = config.start_date
+    end_date = config.end_date
+
+    years_and_months = [(int(d[0].format('YYYY')), int(d[0].format('M')))
+                        for d in arrow.Arrow.span_range('month', arrow.get(start_date), arrow.get(end_date))]
+
+    for year, month in years_and_months:
+        xml = fetch_month_posts(year, month)
+        posts_xml_filename = os.path.join(posts_xml_dir, '{0}-{1:02d}.xml'.format(year, month))
+        with open(posts_xml_filename, 'w+') as file:
+            file.write(xml)
+
     return
 
 
@@ -548,16 +610,31 @@ def fetch_xml(params):
     return response.text
 
 
-def get_users_map(xml, lj_user_dir):
-    users = {}
+def update_users_map(root_xml, lj_user_dir):
+    incoming_users = {}
 
-    for user in xml.iter('usermap'):
-        users[user.attrib['id']] = user.attrib['user']
+    usermap_file = Path(lj_user_dir, 'comments_user_map.json')
 
+    # Read in existing usermaps, if file exists
+    if usermap_file.is_file():
+        with open(usermap_file, 'r') as f:
+            existing_usermaps = json.load(f)
+    else:
+        existing_usermaps = {}
+
+    # Get user records
+    user_records = root_xml.xpath('.//usermap')
+    for r in user_records:
+        incoming_users[r.attrib['id']] = r.attrib['user']
+
+    # Merge
+    updated_users = {**existing_usermaps, **incoming_users}
+
+    # Write it out
     with open(os.path.join(lj_user_dir, 'comments_user_map.json'), 'w') as f:
-        f.write(json.dumps(users, ensure_ascii=False, indent=2))
+        f.write(json.dumps(updated_users, ensure_ascii=False, indent=2))
 
-    return users
+    return
 
 
 def get_comment_property(name, comment_xml, comment):
@@ -574,6 +651,8 @@ def get_comment_element(name, comment_xml, comment):
 def get_more_comments(start_id, users, comments_xml_dir):
     comments = []
     local_max_id = -1
+
+    log.info(f"Fetching more comments, now at comment {str(start_id)}")
 
     xml = fetch_xml({'get': 'comment_body', 'startid': start_id})
     comments_xml_filename = os.path.join(comments_xml_dir, 'comment_body-{0}.xml'.format(start_id))
