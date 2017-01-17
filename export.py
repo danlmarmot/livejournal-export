@@ -64,7 +64,7 @@ def main():
     export_dirs = ensure_export_dirs(DOWNLOADED_JOURNALS_DIR, config.username, EXPORT_DIRS)
 
     # Get userpics for lj_user's friends
-    if False:
+    if True:
         log.info("Getting friends pics")
         get_friend_pics = userpics.get_friends_default_pics_for_user(config.username, copy_dir=export_dirs['userpics'])
 
@@ -73,8 +73,8 @@ def main():
             sys.exit(1)
 
     if True:
-        # log.info("Downloading posts")
-        # download_posts(export_dirs['posts_xml'])
+        log.info("Downloading posts")
+        download_posts(export_dirs['posts_xml'])
 
         log.info("Downloading comments")
         download_comments(export_dirs['comments_xml'], export_dirs['lj_user'])
@@ -505,7 +505,7 @@ def combine(posts, comments, export_dirs):
     num_posts = len(posts)
     for i, json_post in enumerate(posts):
         post_id = json_post['id']
-        log.info(f'Generating post {i} of {num_posts} (post_id {post_id})')
+        log.info(f'Generating post for {json_post["date"]}, {i+1} of {num_posts}')
 
         jitemid = int(post_id) >> 8
 
@@ -590,8 +590,14 @@ def download_posts(posts_xml_dir):
                         for d in arrow.Arrow.span_range('month', arrow.get(start_date), arrow.get(end_date))]
 
     for year, month in years_and_months:
+        posts_xml_filename = Path(posts_xml_dir, f'{year}-{month:02d}.xml')
+
+        if posts_xml_filename.is_file():
+            log.info(f"Not downloading posts for {year}-{month:02d}, downloaded already")
+            continue
+
         xml = fetch_month_posts(year, month)
-        posts_xml_filename = os.path.join(posts_xml_dir, '{0}-{1:02d}.xml'.format(year, month))
+        log.info(f"Downloading posts for {year}-{month:02d}")
         with open(posts_xml_filename, 'w+') as file:
             file.write(xml)
 
