@@ -44,9 +44,6 @@ EXPORT_DIRS = [
     'posts_html',
     'posts_markdown',
     'comments_xml',
-    'comments_json',
-    'comments_html',
-    'comments_markdown',
     'userpics'
 ]
 
@@ -275,18 +272,14 @@ def get_slug(json_dict):
 
     slug = slug.lower()
 
-    # if '<' in slug or '&' in slug:
-    #     slug = BeautifulSoup('<p>{0}</p>'.format(slug), "html.parser").text
+    # change everything not in [a-zA-Z0-9] to -
+    slug = re.compile(r'\W+|_').sub('-', slug)
 
-    # slug = re.compile(r'\W+').sub('-', slug)
-    # slug = re.compile(r'^-|-$').sub('', slug)
+    # remove leading and trailing -
+    slug = re.compile(r'^-|-$').sub('', slug)
 
-    for p in ":;,./\(){}[]<&>":
-        slug = slug.replace(p, '')
-
-    # Change spaces and underscores to dashes
-    for d in ' _':
-        slug = slug.replace(d, '-')
+    # remove multi-dashes
+    slug = re.compile(r'-+').sub('-', slug)
 
     if slug in SLUGS:
         slug += (len(slug) and '-' or '') + json_dict['id']
@@ -503,6 +496,8 @@ def combine(posts, comments, export_dirs):
     posts_comments = group_comments_by_post(comments)
 
     num_posts = len(posts)
+
+    start_time = datetime.now()
     for i, json_post in enumerate(posts):
         post_id = json_post['id']
         log.info(f'Generating post for {json_post["date"]}, {i+1} of {num_posts}')
@@ -535,6 +530,8 @@ def combine(posts, comments, export_dirs):
                          post_comments_md,
                          export_dirs['posts_markdown']
                          )
+
+
 
 
 # Downloads for posts
