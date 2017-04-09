@@ -19,6 +19,11 @@ Create the Python virtualenvironment with this command:
 
     python3 -m venv venv; . venv/bin/activate; pip install -r requirements.txt
 
+## ljconfig.py
+
+Edit this file with your LiveJournal username and password.
+Also enter the dates you wish to download.
+
 ## export.py
 
 This script will do the exporting. Run it after you 
