@@ -219,10 +219,19 @@ def download_comments(comments_xml_dir, lj_user_dir):
     # Get users from usermap file
     users = get_users_map(comments_xml_dir, lj_user_dir)
 
-    # Download comments
-    # start_id = -1
-    # while start_id < max_id:
-    #     start_id, comments = get_more_comments(start_id + 1, users, comments_xml_dir)
+    log.info("Fetching comment max_id")
+    metadata_file = Path(comments_xml_dir, f'comment_meta-0.xml')
+    if not metadata_file.is_file():
+        get_comment_metadata_xml(comments_xml_dir)
+
+    with open(metadata_file, 'rb') as f:
+        root = etree.XML(f.read())
+        max_id = root.findtext('maxid')
+        del root
+
+    start_id = -1
+    while start_id < int(max_id):
+        start_id, comments = get_more_comments(start_id + 1, users, comments_xml_dir)
 
     return
 

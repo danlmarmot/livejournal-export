@@ -1,10 +1,23 @@
-# Export your LiveJournal blog data
+# livejournal-export
 
-[Livejournal provides a method to export your posts as 
-XML](http://www.livejournal.com/export.bml). However 
-this has to be done manually for every month of your blog. 
-Also [comments are exported separately](http://www.livejournal.com/developer/exporting.bml).
-I wrote this tool to make exporting more convenient.
+Forked from arty-name/livejournal-export, and heavily modified as a hobby project.
+
+Here's what's downloaded:
+
+- Your posts
+- Your LJ friends comments to your posts
+- Your LJ friends userpic
+
+These are all placed in a folder named "exported_journals".
+From this you can create a static website of your LiveJournal entries using Pelican, a static website generator.
+
+## To run
+
+Requires Python 3.6+ (hasn't been tested with anything else), and hasn't been tested on Windoww.
+
+Create the Python virtualenvironment with this command:
+
+    python3 -m venv venv; . venv/bin/activate; pip install -r requirements.txt
 
 ## export.py
 
