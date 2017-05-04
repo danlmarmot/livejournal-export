@@ -63,13 +63,13 @@ def main():
     export_dirs = ensure_export_dirs(DOWNLOADED_JOURNALS_DIR, config.username, EXPORT_DIRS)
 
     # Get userpics for lj_user's friends
-#    if True:
-#        log.info("Getting friends pics")
-#        get_friend_pics = userpics.get_friends_default_pics_for_user(config.username, copy_dir=export_dirs['userpics'])
-#
-#        if get_friend_pics.get('status', False) != 'ok':
-#            log.critical("Something went wrong ' + get_friend_pics.get('reason', ' (unknown reason)")
-#            sys.exit(1)
+    if True:
+        log.info("Getting friends pics")
+        get_friend_pics = userpics.get_friends_default_pics_for_user(config.username, copy_dir=export_dirs['userpics'])
+
+        if get_friend_pics.get('status', False) != 'ok':
+            log.critical("Something went wrong ' + get_friend_pics.get('reason', ' (unknown reason)")
+            sys.exit(1)
 
     if True:
         log.info("Downloading posts")
