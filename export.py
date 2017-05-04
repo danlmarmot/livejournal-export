@@ -1,4 +1,5 @@
 #!/usr/bin/python3
+# -*- coding: utf-8 -*-
 
 import fnmatch
 import json
@@ -6,6 +7,7 @@ import logging
 import os
 import re
 import sys
+import time
 import xml.etree.ElementTree as xml_element_tree
 from datetime import datetime
 from hashlib import md5
@@ -61,13 +63,13 @@ def main():
     export_dirs = ensure_export_dirs(DOWNLOADED_JOURNALS_DIR, config.username, EXPORT_DIRS)
 
     # Get userpics for lj_user's friends
-    if True:
-        log.info("Getting friends pics")
-        get_friend_pics = userpics.get_friends_default_pics_for_user(config.username, copy_dir=export_dirs['userpics'])
-
-        if get_friend_pics.get('status', False) != 'ok':
-            log.critical("Something went wrong ' + get_friend_pics.get('reason', ' (unknown reason)")
-            sys.exit(1)
+#    if True:
+#        log.info("Getting friends pics")
+#        get_friend_pics = userpics.get_friends_default_pics_for_user(config.username, copy_dir=export_dirs['userpics'])
+#
+#        if get_friend_pics.get('status', False) != 'ok':
+#            log.critical("Something went wrong ' + get_friend_pics.get('reason', ' (unknown reason)")
+#            sys.exit(1)
 
     if True:
         log.info("Downloading posts")
@@ -232,6 +234,7 @@ def download_comments(comments_xml_dir, lj_user_dir):
     start_id = -1
     while start_id < int(max_id):
         start_id, comments = get_more_comments(start_id + 1, users, comments_xml_dir)
+        time.sleep(8)
 
     return
 
@@ -604,7 +607,7 @@ def download_posts(posts_xml_dir):
 
         xml = fetch_month_posts(year, month)
         log.info(f"Downloading posts for {year}-{month:02d}")
-        with open(posts_xml_filename, 'w+') as file:
+        with open(posts_xml_filename, 'w+', encoding="utf8") as file:
             file.write(xml)
 
     return
@@ -668,7 +671,7 @@ def get_more_comments(start_id, users, comments_xml_dir):
 
     xml = fetch_xml({'get': 'comment_body', 'startid': start_id})
     comments_xml_filename = os.path.join(comments_xml_dir, 'comment_body-{0}.xml'.format(start_id))
-    with open(comments_xml_filename, 'w') as f:
+    with open(comments_xml_filename, 'w', encoding="utf8") as f:
         f.write(xml)
 
     for comment_xml in xml_element_tree.fromstring(xml).iter('comment'):
