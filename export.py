@@ -19,6 +19,7 @@ import arrow
 import html2text
 import markdown
 import requests
+from jitter import jitter
 
 import ljconfig as config
 import userpics
@@ -234,7 +235,6 @@ def download_comments(comments_xml_dir, lj_user_dir):
     start_id = -1
     while start_id < int(max_id):
         start_id, comments = get_more_comments(start_id + 1, users, comments_xml_dir)
-        time.sleep(8)
 
     return
 
@@ -612,8 +612,8 @@ def download_posts(posts_xml_dir):
 
     return
 
-
 # Comments
+@jitter()
 def fetch_xml(params):
     response = requests.get(
         'http://www.livejournal.com/export_comments.bml',
@@ -621,7 +621,6 @@ def fetch_xml(params):
         headers=config.header,
         cookies=get_cookies()
     )
-
     return response.text
 
 
