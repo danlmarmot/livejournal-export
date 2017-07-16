@@ -1,4 +1,5 @@
 #!/usr/bin/python3
+# -*- coding: utf-8 -*-
 
 import fnmatch
 import json
@@ -6,6 +7,7 @@ import logging
 import os
 import re
 import sys
+import time
 import xml.etree.ElementTree as xml_element_tree
 from datetime import datetime
 from hashlib import md5
@@ -17,6 +19,7 @@ import arrow
 import html2text
 import markdown
 import requests
+from jitter import jitter
 
 import ljconfig as config
 import userpics
@@ -604,13 +607,13 @@ def download_posts(posts_xml_dir):
 
         xml = fetch_month_posts(year, month)
         log.info(f"Downloading posts for {year}-{month:02d}")
-        with open(posts_xml_filename, 'w+') as file:
+        with open(posts_xml_filename, 'w+', encoding="utf8") as file:
             file.write(xml)
 
     return
 
-
 # Comments
+@jitter()
 def fetch_xml(params):
     response = requests.get(
         'http://www.livejournal.com/export_comments.bml',
@@ -618,7 +621,6 @@ def fetch_xml(params):
         headers=config.header,
         cookies=get_cookies()
     )
-
     return response.text
 
 
@@ -668,7 +670,7 @@ def get_more_comments(start_id, users, comments_xml_dir):
 
     xml = fetch_xml({'get': 'comment_body', 'startid': start_id})
     comments_xml_filename = os.path.join(comments_xml_dir, 'comment_body-{0}.xml'.format(start_id))
-    with open(comments_xml_filename, 'w') as f:
+    with open(comments_xml_filename, 'w', encoding="utf8") as f:
         f.write(xml)
 
     for comment_xml in xml_element_tree.fromstring(xml).iter('comment'):
