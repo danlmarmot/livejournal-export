@@ -334,17 +334,24 @@ def json_to_markdown(json_dict):
     # json_dict['slug'] = get_slug(json_dict)
     json_dict['subject'] = json_dict['subject'] or json_dict['date']
 
-    md_text = """id: {id}
-Title: {subject}
-Date: {date}
-Tags: {tags}
-Status: {security}
-Slug: {slug}
+    front_matter = {
+        'id':'id',
+        'subject':'Title',
+        'date':'Date',
+        'tags':'Tags',
+        'security':'Status',
+        'slug':'Slug',
+        'current_music':'Music',
+        'current_mood':'Mood',
+        'location':'Location'
+    }
+    md_text = []
+    for json_key, md_key in front_matter.items():
+        if json_key not in json_dict:
+            continue
+        md_text.append(f'{md_key}: {json_dict[json_key]}')
 
-{body}
-""".format(**json_dict)
-
-    return md_text
+    return '\n'.join(md_text)+'\n\n'+json_dict['body']
 
 
 def group_comments_by_post(comments):
