@@ -13,6 +13,7 @@ from datetime import datetime
 from hashlib import md5
 from operator import itemgetter
 from pathlib import Path
+from bs4 import BeautifulSoup
 from lxml import etree
 
 import arrow
@@ -276,6 +277,10 @@ def post_json_to_html(json_dict):
         body=TAGLESS_NEWLINES.sub('<br>\n', json_dict['body'])
     )
 
+def get_lj_tags(html):
+    tags = [list(tag.children)[0] for tag in BeautifulSoup(html, 'lxml').find_all('a',rel='tag')]
+
+    return tags
 
 def get_slug(json_dict):
     slug = json_dict.get('subject', json_dict['id'])
@@ -311,8 +316,14 @@ def json_to_markdown(json_dict):
     body = NEWLINES.sub('\n\n', body)
 
     # read UTX tags
+    if 'tags' not in json_dict:
+        # there were no ljtags already
+        json_dict['tags'] = []
     tags = TAG.findall(body)
-    json_dict['tags'] = len(tags) and '\ntags: {0}'.format(', '.join(tags)) or ''
+    if tags:
+        json_dict['tags'] += tags
+
+    json_dict['tags'] = '{0}'.format(', '.join(json_dict['tags']))
 
     # remove UTX tags from text
     json_dict['body'] = TAG.sub('', body).strip()
@@ -526,6 +537,15 @@ def combine(posts, comments, export_dirs):
         fix_user_links(json_post)
         json_post['slug'] = get_slug(json_post)
 
+        post_html = requests.get(
+            'https://{0}.livejournal.com/{1}.html'.format(
+                config.username,
+                json_post['id']),
+            headers=config.header
+        ).content
+
+        json_post['tags'] = get_lj_tags(post_html)
+        log.debug(f'Found tags: {json_post["tags"]}')
         save_as_json(json_post,
                      post_comments,
                      export_dirs['posts_json'])
