@@ -282,6 +282,9 @@ def get_lj_tags(html):
 
     return tags
 
+def get_location(html):
+    return list(BeautifulSoup(html, 'lxml').find(class_='metadata').find('a').children)[0]
+
 def get_slug(json_dict):
     slug = json_dict.get('subject', json_dict['id'])
     if not len(slug):
@@ -546,6 +549,10 @@ def combine(posts, comments, export_dirs):
 
         json_post['tags'] = get_lj_tags(post_html)
         log.debug(f'Found tags: {json_post["tags"]}')
+        
+        json_post['location'] = get_location(post_html)
+        log.debug(f'Found location: {json_post["location"]}')
+
         save_as_json(json_post,
                      post_comments,
                      export_dirs['posts_json'])
