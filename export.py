@@ -324,10 +324,8 @@ def json_to_markdown(json_dict):
 Title: {subject}
 Date: {date}
 Tags: {tags}
-Status: published
+Status: {security}
 Slug: {slug}
-
-Security (from LJ): {security}
 
 {body}
 """.format(**json_dict)
@@ -584,7 +582,7 @@ def post_xml_to_json(xml):
         'subject': f('subject') or '',
         'body': f('event'),
         'date': f('eventtime'),
-        'security': f('security'),
+        'security': ('private','public')[f('security')=='public'],
         'allowmask': f('allowmask'),
         'current_music': f('current_music'),
         'current_mood': f('current_mood')
