@@ -616,7 +616,7 @@ def post_xml_to_json(xml):
         'subject': f('subject') or '',
         'body': f('event'),
         'date': f('eventtime'),
-        'security': ('private','public')[f('security')=='public'],
+        'security': ('private','published')[f('security')=='public'],
         'allowmask': f('allowmask'),
         'current_music': f('current_music'),
         'current_mood': f('current_mood')
