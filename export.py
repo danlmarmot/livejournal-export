@@ -13,13 +13,14 @@ from datetime import datetime
 from hashlib import md5
 from operator import itemgetter
 from pathlib import Path
+from bs4 import BeautifulSoup
 from lxml import etree
 
 import arrow
 import html2text
 import markdown
 import requests
-from jitter import jitter
+from jitter import delay
 
 import ljconfig as config
 import userpics
@@ -85,9 +86,9 @@ def main():
         create_comments_json_all_file(export_dirs['comments_xml'], export_dirs['lj_user'])
 
     if True:
-        with open(os.path.join(export_dirs['lj_user'], 'all_posts.json'), 'r') as f:
+        with open(os.path.join(export_dirs['lj_user'], 'all_posts.json'), 'r', encoding='utf-8') as f:
             all_posts = json.load(f)
-        with open(os.path.join(export_dirs['lj_user'], 'all_comments.json'), 'r') as f:
+        with open(os.path.join(export_dirs['lj_user'], 'all_comments.json'), 'r', encoding='utf-8') as f:
             all_comments = json.load(f)
 
         combine(all_posts, all_comments, export_dirs)
@@ -119,12 +120,12 @@ def create_posts_json_all_file(posts_xml_dir, lj_user_dir):
 
     xml_files = find_files_by_pattern('*.xml', posts_xml_dir)
     for xml_file in xml_files:
-        with open(xml_file, 'rt') as f:
+        with open(xml_file, 'rt', encoding='utf-8') as f:
             xml_posts.extend(list(xml_element_tree.fromstring(f.read()).iter('entry')))
 
     json_posts = list(map(post_xml_to_json, xml_posts))
     posts_json_all_filename = os.path.join(lj_user_dir, 'all_posts.json')
-    with open(posts_json_all_filename, 'w') as f:
+    with open(posts_json_all_filename, 'w', encoding='utf-8') as f:
         f.write(json.dumps(json_posts, ensure_ascii=False, indent=2))
 
 
@@ -138,12 +139,12 @@ def create_comments_json_all_file(comments_xml_dir, lj_user_dir):
 
     xml_files = find_files_by_pattern('comment_body*.xml', comments_xml_dir)
     for xml_file in xml_files:
-        with open(xml_file, 'rt') as f:
+        with open(xml_file, 'rt', encoding='utf-8') as f:
             new_comments = extract_comments_from_xml(f.read(), users)
             all_comments.extend(new_comments)
 
     comments_json_all_filename = os.path.join(lj_user_dir, "all_comments.json")
-    with open(comments_json_all_filename, 'w') as f:
+    with open(comments_json_all_filename, 'w', encoding='utf-8') as f:
         f.write(json.dumps(all_comments, ensure_ascii=False, indent=2))
 
     return
@@ -205,7 +206,7 @@ def get_comment_metadata_xml(comments_xml_dir, start_id=0):
         )
 
         if requests.codes.ok:
-            with open(metadata_file, 'w') as f:
+            with open(metadata_file, 'w', encoding='utf-8') as f:
                 f.write(response.text)
                 # note r.content used, not r.text, to avoid encoding mismatch error from lxml
                 root = etree.XML(response.content)
@@ -248,7 +249,7 @@ def get_users_map(comments_xml_dir, lj_user_dir, force=False):
             update_users_map(metadata_xml, lj_user_dir)
 
     # Read it in
-    with open(usermap_file, 'r') as f:
+    with open(usermap_file, 'r', encoding='utf-8') as f:
         users_map = json.load(f)
 
     return users_map
@@ -276,6 +277,13 @@ def post_json_to_html(json_dict):
         body=TAGLESS_NEWLINES.sub('<br>\n', json_dict['body'])
     )
 
+def get_lj_tags(html):
+    tags = [list(tag.children)[0] for tag in BeautifulSoup(html, 'lxml').find_all('a',rel='tag')]
+
+    return tags
+
+def get_location(html):
+    return list(BeautifulSoup(html, 'lxml').find(class_='metadata').find('a').children)[0]
 
 def get_slug(json_dict):
     slug = json_dict.get('subject', json_dict['id'])
@@ -311,8 +319,14 @@ def json_to_markdown(json_dict):
     body = NEWLINES.sub('\n\n', body)
 
     # read UTX tags
+    if 'tags' not in json_dict:
+        # there were no ljtags already
+        json_dict['tags'] = []
     tags = TAG.findall(body)
-    json_dict['tags'] = len(tags) and '\ntags: {0}'.format(', '.join(tags)) or ''
+    if tags:
+        json_dict['tags'] += tags
+
+    json_dict['tags'] = '{0}'.format(', '.join(json_dict['tags']))
 
     # remove UTX tags from text
     json_dict['body'] = TAG.sub('', body).strip()
@@ -320,19 +334,24 @@ def json_to_markdown(json_dict):
     # json_dict['slug'] = get_slug(json_dict)
     json_dict['subject'] = json_dict['subject'] or json_dict['date']
 
-    md_text = """id: {id}
-Title: {subject}
-Date: {date}
-Tags: {tags}
-Status: published
-Slug: {slug}
+    front_matter = {
+        'id':'id',
+        'subject':'Title',
+        'date':'Date',
+        'tags':'Tags',
+        'security':'Status',
+        'slug':'Slug',
+        'current_music':'Music',
+        'current_mood':'Mood',
+        'location':'Location'
+    }
+    md_text = []
+    for json_key, md_key in front_matter.items():
+        if json_key not in json_dict:
+            continue
+        md_text.append(f'{md_key}: {json_dict[json_key]}')
 
-Security (from LJ): {security}
-
-{body}
-""".format(**json_dict)
-
-    return md_text
+    return '\n'.join(md_text)+'\n\n'+json_dict['body']
 
 
 def group_comments_by_post(comments):
@@ -443,7 +462,7 @@ def make_md_comment(comment, export_dirs, level=0):
 
     # print(comment.get('author', 'anonymous')+"\n------------")
 
-    rv_md = markdown.markdown(md, ['markdown.extensions.extra'])
+    rv_md = markdown.markdown(md, extensions=['markdown.extensions.extra'])
     # print(rv_md)
 
     return rv_md
@@ -466,7 +485,7 @@ def save_as_json(json_post, post_comments, posts_json_dir):
     json_id = json_post['id']
     json_data = {'id': json_id, 'post': json_post, 'comments': post_comments}
     json_filename = os.path.join(posts_json_dir, '{0}.json'.format(json_id))
-    with open(json_filename, 'w') as json_file:
+    with open(json_filename, 'w', encoding='utf-8') as json_file:
         json_file.write(json.dumps(json_data, ensure_ascii=False, indent=2))
 
 
@@ -476,7 +495,7 @@ def save_as_markdown(json_post, subfolder, post_comments_md,
     os.makedirs(parent_md_dir, exist_ok=True)
 
     md_filename = os.path.join(parent_md_dir, json_post['slug'] + ".md")
-    with open(md_filename, 'w') as md_file:
+    with open(md_filename, 'w', encoding='utf-8') as md_file:
         md_file.write(json_to_markdown(json_post))
 
         if post_comments_md:
@@ -490,7 +509,7 @@ def save_as_html(json_post, subfolder, post_comments_html, posts_html_dir):
     os.makedirs(parent_dir, exist_ok=True)
 
     html_filename = os.path.join(parent_dir, post_id + ".html")
-    with open(html_filename, 'w') as html_file:
+    with open(html_filename, 'w', encoding='utf-8') as html_file:
         html_file.writelines(post_json_to_html(json_post))
         if post_comments_html:
             html_file.write('\n<h2>Comments</h2>\n' + post_comments_html)
@@ -527,6 +546,19 @@ def combine(posts, comments, export_dirs):
 
         fix_user_links(json_post)
         json_post['slug'] = get_slug(json_post)
+
+        post_html = requests.get(
+            'https://{0}.livejournal.com/{1}.html'.format(
+                config.username,
+                json_post['id']),
+            headers=config.header
+        ).content
+
+        json_post['tags'] = get_lj_tags(post_html)
+        log.debug(f'Found tags: {json_post["tags"]}')
+        
+        json_post['location'] = get_location(post_html)
+        log.debug(f'Found location: {json_post["location"]}')
 
         save_as_json(json_post,
                      post_comments,
@@ -584,7 +616,7 @@ def post_xml_to_json(xml):
         'subject': f('subject') or '',
         'body': f('event'),
         'date': f('eventtime'),
-        'security': f('security'),
+        'security': ('private','published')[f('security')=='public'],
         'allowmask': f('allowmask'),
         'current_music': f('current_music'),
         'current_mood': f('current_mood')
@@ -613,7 +645,7 @@ def download_posts(posts_xml_dir):
     return
 
 # Comments
-@jitter()
+@delay()
 def fetch_xml(params):
     response = requests.get(
         'http://www.livejournal.com/export_comments.bml',
@@ -645,7 +677,7 @@ def update_users_map(root_xml, lj_user_dir):
     updated_users = {**existing_usermaps, **incoming_users}
 
     # Write it out
-    with open(os.path.join(lj_user_dir, 'comments_user_map.json'), 'w') as f:
+    with open(os.path.join(lj_user_dir, 'comments_user_map.json'), 'w', encoding='utf-8') as f:
         f.write(json.dumps(updated_users, ensure_ascii=False, indent=2))
 
     return
